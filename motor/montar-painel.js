@@ -50,7 +50,7 @@ function montar(r, mktAte, fontes){
         u:i.code, nome:i.nome, serie:i.serie, data:i.data, dias:i.dias, dISO:i.dISO,
         bolsao:i.bolsao, pg:i.pg, pagoM:i.pagoM, pagoP:i.pagoP, parcial:i.parcial, falta:i.falta,
         cotaEsperada:i.cotaEsperada,
-        finDt:i.finDt, finVenc:i.finVenc,
+        finDt:i.finDt, finVenc:i.finVenc, baixaZero:!!i.baixaZero,
         trilha:i.trilha, plan:i.plan, ra:i.ra||null, sit:i.sit,
         matriculado:i.matriculado, pre:i.pre, ticket:i.ticket, posMkt:i.posMkt, sug:i.sug||null,
         semFluxo: i.fluxo === '(em branco)'

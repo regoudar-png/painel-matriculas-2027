@@ -684,7 +684,8 @@ function trilha(i){
   const dica=[ i.pagoM ? ('Pago no Marketplace'+(i.parcial?' · cota parcial: falta R$ '+Math.round(i.falta)+' de '+i.cotaEsperada:''))
       : i.pagoP ? ('Pago pelo Portal do aluno'+(i.finDt?' em '+i.finDt:'')+(i.parcial?' · cota parcial: falta R$ '+Math.round(i.falta)+' de '+i.cotaEsperada:''))
       : i.pg ? ('Marketplace: '+i.pg)
-      : (i.finVenc ? 'Cota em aberto no Totvs, vence '+i.finVenc : 'Sem pagamento localizado'),
+      : (i.baixaZero ? 'Cota baixada no Totvs por R$ 0,00'+(i.finDtZero?' em '+i.finDtZero:'')+' — nenhum dinheiro entrou'
+        : i.finVenc ? 'Cota em aberto no Totvs, vence '+i.finVenc : 'Sem pagamento localizado'),
     i.ra?'Totvs: '+i.sit:'Não está no Totvs' ];
   return '<span class="trk">'+[g,t].map((c,k)=>
     '<b class="'+c[0]+'" title="'+esc(dica[k])+'">'+c[1]+'</b>').join('')+'</span>';

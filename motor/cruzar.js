@@ -587,6 +587,9 @@ const ERROS = [
   { id:'ticket_fora', chip:'VALOR ATÍPICO', k:'warn',
     t:'Anuidade fora da faixa esperada',
     d:'A anuidade calculada ficou fora do intervalo de R$ 1.800 a R$ 40.000. Fora dessa faixa costuma ser separador decimal errado no lançamento — mas pode ser anuidade real alta. Enquanto não se confirma, o aluno fica fora do cálculo do ticket.' },
+  { id:'baixa_sem_valor', chip:'BAIXA SEM VALOR', k:'crit',
+    t:'Cota baixada no Totvs sem nenhum valor',
+    d:'A cota está como Baixada no Totvs, mas o valor baixado é R$ 0,00 e não há pedido pago na Layers. Na tela da unidade a matrícula parece quitada; na prática nenhum dinheiro entrou. Ou a baixa foi lançada sem valor por engano, ou a cota foi dispensada — nos dois casos precisa ser conferida.' },
   { id:'sem_baixa', chip:'FALTA BAIXAR', k:'warn',
     t:'Pago no e-commerce e ainda não baixado no Totvs',
     d:'A família pagou pela Layers e o dinheiro entrou, mas a parcela continua aberta no Totvs. A conciliação é manual: enquanto não for feita, o sistema mostra dívida que não existe e a cobrança pode ser reenviada à família.' }
@@ -603,6 +606,11 @@ function errosDe(p, semFicha){
   const pagouLayers = !!(p.mkt && p.mkt.status === 'Pago');
   if(pagouLayers && !(p.fin && p.fin.pago)) e.push('sem_baixa');
   if(p.mkt && p.mkt.status === 'Estornado' && p.fin && p.fin.pago) e.push('baixa_nao_revertida');
+  // Baixado no Totvs por R$ 0,00 e sem dinheiro em lugar nenhum: a unidade vê
+  // a cota quitada e o painel vê pendente — as duas coisas estão certas.
+  const entrouDinheiro = pagouLayers || !!(p.fin && p.fin.valor > 0) ||
+    !!(p.cob && p.cob.entradas.some(x => x.baixado));
+  if(!entrouDinheiro && p.cob && p.cob.entradas.some(x => x.zerada)) e.push('baixa_sem_valor');
   if(!t || !(MATRICULADO.has(t.sit) || PRE.has(t.sit))) return e;
   if(!p.cob || (!p.cob.entradas.length && !p.cob.mensalidades)) e.push('sem_financeiro');
   else {
@@ -769,7 +777,9 @@ function cruzar(caminhoTotvs, caminhoUnidades, caminhoMkt, caminhoFin){
       parcial: !!(p.fin && p.fin.parcial),
       falta: p.fin && p.fin.parcial ? p.fin.parcial.falta : null,
       cotaEsperada: p.fin ? p.fin.esperado : null,
-      finDt: p.fin?p.fin.dtBaixa:null, finValor: p.fin?p.fin.valor:null,
+      finDt: p.fin?p.fin.dtBaixa:null,
+      // Cota baixada por R$ 0,00: a dica do painel precisa dizer isso.
+      baixaZero: !!(p.cob && p.cob.entradas.some(x => x.zerada)) && !(p.fin && p.fin.valor > 0), finValor: p.fin?p.fin.valor:null,
       finVenc: p.fin && !p.fin.pago ? p.fin.venc : null,
       trilha: p.fin?p.fin.descricao:null,
       // Erros de lançamento no financeiro, para as listas de rastreio.
