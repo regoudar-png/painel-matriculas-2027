@@ -693,6 +693,28 @@ function cruzar(caminhoTotvs, caminhoUnidades, caminhoMkt, caminhoFin){
   const alvo = pessoas.map(p => ({ code:p.code, aluno:p.nomes[0], _p:p,
     resp: (p.mkt && p.mkt.resp) || (p.plan && p.plan.resp) || null }));
   parear(alvo, tv.captacao, 'aluno', 'aluno');
+  // Às vezes o pedido da Layers vem com o nome do responsável no campo do
+  // aluno — o pai preenche o formulário com o próprio nome. O nome não casa
+  // com ninguém no Totvs e o pagamento vira um "falta lançar" fantasma, ao
+  // lado do filho, que aparece pago só pela baixa. Quando o CPF do responsável
+  // aponta para um único aluno no cadastro, o par é esse.
+  const porCpfResp = new Map();
+  tv.captacao.forEach(t => {
+    const k = String(t.cpfResp || '').replace(/\D/g, '');
+    if(k.length < 9) return;
+    if(!porCpfResp.has(k)) porCpfResp.set(k, []);
+    porCpfResp.get(k).push(t);
+  });
+  const porCpf = [];
+  alvo.forEach(a => {
+    if(a._par || !a._p.mkt) return;
+    const k = String(a._p.mkt.cpf || '').replace(/\D/g, '');
+    const cand = (porCpfResp.get(k) || []).filter(t => !t._par);
+    if(cand.length !== 1) return;
+    a._par = cand[0]; cand[0]._par = a; a._nota = null; a._p._porCpf = true;
+    porCpf.push({ pedidoEm: a.aluno, aluno: cand[0].aluno, ra: cand[0].ra, unidade: CODE[cand[0].code] || cand[0].code });
+  });
+  tv.relato.pedidoNoNomeDoResponsavel = porCpf;
   alvo.forEach(a => { if(a._par) a._p.totvs = a._par; a._p._notaTv = a._nota||null; });
   // quem sobrou no Totvs entra como aluno de fora do bolsão
   tv.captacao.forEach(t => { if(!t._par) pessoas.push({ code:t.code, mkt:null, plan:null, totvs:t, nomes:[t.aluno] }); });
@@ -732,7 +754,8 @@ function cruzar(caminhoTotvs, caminhoUnidades, caminhoMkt, caminhoFin){
     const dISO = g ? isoDe(g.data) : null;
     return {
       code:p.code, unidade:CODE[p.code]||p.code, cat:p.cat,
-      nome: (g&&g.aluno) || (t&&t.aluno) || (u&&u.aluno),
+      // Pedido preenchido com o nome do responsável: quem vale é o aluno do Totvs.
+      nome: (p._porCpf && t && t.aluno) || (g&&g.aluno) || (t&&t.aluno) || (u&&u.aluno),
       serie: (t&&t.serie) || (g&&g.seriePret) || (u&&u.turma) || '',
       data: g?g.data:'', dISO, dias: dias(dISO),
       bolsao: dISO ? (dISO>='2026-08-22'?2:1) : 0,

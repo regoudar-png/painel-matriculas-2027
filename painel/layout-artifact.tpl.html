@@ -867,6 +867,8 @@ function qualidade(){
   if(q.complementares) partes.push(nf(q.complementares) + ' matrículas de Semi-Integral fora da captação (é contrato por cima da matrícula regular)');
   if((q.sugestoes || []).length) partes.push(nf(q.sugestoes.length) + ' nomes quase iguais aguardando confirmação');
   if(q.linhasRepetidas) partes.push(nf(q.linhasRepetidas) + ' linhas repetidas do Totvs unificadas');
+  const resp = q.pedidoNoNomeDoResponsavel || [];
+  if(resp.length) partes.push(nf(resp.length) + ' pedido' + (resp.length>1?'s':'') + ' da Layers no nome do responsável, ligado' + (resp.length>1?'s':'') + ' ao aluno pelo CPF (' + resp.map(function(x){return esc(x.aluno)}).join(', ') + ')');
   let h = '<div class="nota" style="border-top:0">' + (partes.join(' · ') || 'sem avisos') + '</div>';
   if(conferir.length){
     h += '<div class="nota"><b>Tipo de matrícula a conferir · ' + conferir.length + '</b> — aluno da casa lançado como matrícula nova. ' +
