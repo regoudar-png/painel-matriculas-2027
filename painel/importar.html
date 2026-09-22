@@ -1,0 +1,301 @@
+<!-- Área de importação. Injetada no painel por montar-app.js.
+     Lê os quatro relatórios no próprio navegador, roda o motor e publica uma
+     nova versão da página — todo mundo que estiver com ela aberta recarrega. -->
+<style>
+.imp-fundo{position:fixed;inset:0;background:rgba(16,37,56,.55);z-index:60;
+ display:flex;align-items:flex-start;justify-content:center;padding:36px 18px;overflow:auto}
+.imp{background:var(--surface);border-radius:14px;width:min(760px,100%);
+ box-shadow:0 24px 60px rgba(16,37,56,.28);overflow:hidden}
+.imp-cab{display:flex;align-items:flex-start;gap:14px;padding:20px 22px 16px;
+ border-bottom:1px solid var(--line)}
+.imp-cab h2{margin:0;font-family:Poppins,"Century Gothic",sans-serif;font-weight:800;
+ font-size:17px;letter-spacing:-.01em;color:var(--brand)}
+.imp-cab p{margin:5px 0 0;font-size:12.5px;color:var(--muted);max-width:60ch;line-height:1.55}
+.imp-x{margin-left:auto;background:none;border:0;font:inherit;font-size:20px;line-height:1;
+ color:var(--faint);cursor:pointer;padding:2px 6px;border-radius:6px}
+.imp-x:hover{background:var(--ground);color:var(--ink)}
+.imp-corpo{padding:18px 22px 22px}
+.solta{border:1.5px dashed var(--line-2);border-radius:11px;padding:20px;text-align:center;
+ cursor:pointer;background:var(--ground);transition:border-color .15s,background .15s}
+.solta:hover,.solta.sobre{border-color:var(--brand);background:var(--info-bg)}
+.solta b{display:block;font-weight:800;font-size:13.5px;color:var(--brand);margin-bottom:3px}
+.solta span{font-size:12px;color:var(--muted)}
+.vagas{list-style:none;margin:16px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;
+ background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.vaga{display:grid;grid-template-columns:26px 1fr auto;gap:11px;align-items:center;
+ background:var(--surface);padding:11px 14px}
+.vaga.ok{background:var(--ok-bg)}
+.vaga .num{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+ font-size:11px;color:var(--muted);background:var(--ground);border:1px solid var(--line)}
+.vaga.ok .num{background:var(--ok);border-color:var(--ok);color:#fff}
+.vaga .rot{font-size:12.5px;color:var(--ink);line-height:1.4}
+.vaga .rot i{display:block;font-style:normal;font-size:11px;color:var(--faint);margin-top:1px}
+.vaga.ok .rot i{color:var(--muted)}
+.vaga .est{font-size:11.5px;color:var(--faint);text-align:right;white-space:nowrap}
+.vaga.ok .est{color:var(--ok)}
+.imp-msg{margin-top:14px;font-size:12.5px;line-height:1.6;padding:11px 14px;border-radius:9px}
+.imp-msg.erro{background:var(--crit-bg);color:var(--crit);border-left:3px solid var(--crit)}
+.imp-msg.aguarde{background:var(--info-bg);color:var(--brand);border-left:3px solid var(--brand)}
+.imp-msg.pronto{background:var(--ok-bg);color:var(--muted);border-left:3px solid var(--ok)}
+.previa{margin-top:14px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.previa table{width:100%;border-collapse:collapse;font-size:12.5px}
+.previa th{background:var(--info-bg);color:var(--brand);text-align:left;font-weight:800;
+ padding:8px 12px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase}
+.previa td{padding:7px 12px;border-top:1px solid var(--line)}
+.previa td:nth-child(2),.previa td:nth-child(3),.previa td:nth-child(4){text-align:right;
+ font-variant-numeric:tabular-nums}
+.previa .dif{color:var(--muted)}
+.previa .dif.sobe{color:var(--ok)}
+.previa .dif.desce{color:var(--crit)}
+.imp-pe{display:flex;gap:10px;align-items:center;margin-top:18px;flex-wrap:wrap}
+.imp-bt{background:var(--brand);color:#fff;border:0;border-radius:8px;padding:10px 18px;
+ font:inherit;font-weight:800;font-size:13px;cursor:pointer}
+.imp-bt:disabled{background:var(--line-2);color:var(--faint);cursor:default}
+.imp-bt.sec{background:none;color:var(--muted);font-weight:400}
+.imp-bt.sec:hover{color:var(--ink)}
+.imp-pe .nota{font-size:11.5px;color:var(--faint);margin-left:auto;max-width:38ch;text-align:right}
+</style>
+
+<div class="imp-fundo" id="impFundo" hidden>
+  <div class="imp" role="dialog" aria-modal="true" aria-labelledby="impTit">
+    <div class="imp-cab">
+      <div>
+        <h2 id="impTit">Importar os relatórios</h2>
+        <p>Solte os três arquivos de uma vez — eu reconheço cada um pelo conteúdo, não pela
+           ordem. Só o cadastro do Totvs é obrigatório; a ficha financeira e a base da Layers
+           somam informação. Nada sai do seu navegador enquanto você não publicar.</p>
+      </div>
+      <button class="imp-x" type="button" id="impX" aria-label="Fechar">&times;</button>
+    </div>
+    <div class="imp-corpo">
+      <div class="solta" id="impSolta" tabindex="0" role="button">
+        <b>Solte os arquivos aqui</b>
+        <span>ou clique para escolher &middot; .xlsx exportados da Layers e do Totvs</span>
+        <input type="file" id="impFile" accept=".xlsx,.xls" multiple hidden>
+      </div>
+      <ul class="vagas" id="impVagas"></ul>
+      <div id="impMsg"></div>
+      <div id="impPrevia"></div>
+      <div class="imp-pe">
+        <button class="imp-bt" type="button" id="impGerar" disabled>Conferir os números</button>
+        <button class="imp-bt" type="button" id="impPublicar" hidden>Publicar para todos</button>
+        <button class="imp-bt sec" type="button" id="impLimpar">Limpar</button>
+        <span class="nota" id="impNota"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// Ordem em que as unidades pensam nos relatórios. A detecção é pelo conteúdo,
+// mas a lista precisa aparecer na ordem que elas conhecem.
+var VAGAS = [
+  { k:'marketplace', rot:'Base da Layers',
+    dica:'itens da venda: pedidos do bolsão e status de cada pagamento', obrigatorio:false },
+  { k:'totvs',       rot:'Cadastro — Totvs',
+    dica:'alunos e responsáveis: situação e tipo de matrícula, série, turma', obrigatorio:true },
+  { k:'financeiro',  rot:'Ficha financeira — Totvs',
+    dica:'parcelas, baixas, bolsas e mensalidades (a que traz VALOR_BAIXADO e STATUS_BOLETO)', obrigatorio:false }
+];
+// Reconhecido, mas não usado: o painel não precisa dele. Fica aqui para o
+// arquivo não voltar como "não reconheci" quando alguém o soltar junto.
+var IGNORADOS = { bolsas: 'Relatório de bolsas (Base Financeira) — o painel não usa: as bolsas já vêm na ficha financeira' };
+
+// Assinatura de cada base: colunas que só existem naquele relatório.
+function detectar(wb){
+  var abas = wb.abas.filter(function(a){ return a.linhas && a.linhas.length; });
+  if(!abas.length) return null;
+  var maior = abas.slice().sort(function(a,b){ return b.linhas.length - a.linhas.length; })[0];
+  var cab = (maior.linhas[0] || []).map(function(v){ return String(v == null ? '' : v).trim().toUpperCase(); });
+  var tem = function(){ for(var i=0;i<arguments.length;i++) if(cab.indexOf(arguments[i]) < 0) return false; return true; };
+
+  if(tem('VALOR_BAIXADO','SERVICO','RA')) return 'financeiro';
+  if(tem('SITUACAO MATRICULA','TIPO MATRICULA','NOME ALUNO')) return 'totvs';
+  // A Layers exporta em dois formatos: o antigo, já tratado, e o cru
+  // "itens da venda", onde o nome do aluno fica em Formulário 1.
+  if(tem('CÓDIGO DA VENDA','STATUS DA VENDA')) return 'marketplace';
+  if(tem('STATUS','ID DA TRANSAÇÃO') || tem('STATUS','CÓDIGO DO PEDIDO')) return 'marketplace';
+  // Base Financeira do Totvs (IDLAN, PLANO DE PAGAMENTO, BOLSA %): sem baixa,
+  // sem status de boleto. É o relatório de bolsas, não a ficha.
+  if(tem('IDLAN','PLANO DE PAGAMENTO','BOLSA %')) return 'bolsas';
+  return null;
+}
+
+var achados = {};      // k -> {nome, wb, linhas}
+var lendo = false;     // há arquivo em leitura
+var novoJson = null;
+
+var $ = function(id){ return document.getElementById(id); };
+var fundo = $('impFundo'), msg = $('impMsg'), previa = $('impPrevia');
+var btGerar = $('impGerar'), btPub = $('impPublicar'), nota = $('impNota');
+
+function aviso(txt, tipo){
+  msg.innerHTML = txt ? '<div class="imp-msg ' + tipo + '">' + txt + '</div>' : '';
+}
+function nf(v){ return Number(v).toLocaleString('pt-BR'); }
+
+function pintarVagas(){
+  $('impVagas').innerHTML = VAGAS.map(function(v){
+    var a = achados[v.k];
+    return '<li class="vaga' + (a ? ' ok' : '') + '">' +
+      '<span class="num">' + (a ? '&#10003;' : (VAGAS.indexOf(v) + 1)) + '</span>' +
+      '<span class="rot">' + v.rot + '<i>' + v.dica +
+        (v.obrigatorio ? '' : ' &middot; opcional') + '</i></span>' +
+      '<span class="est">' + (a ? nf(a.linhas) + ' linhas<br>' + a.nome : '—') + '</span></li>';
+  }).join('');
+  var faltam = VAGAS.filter(function(v){ return v.obrigatorio && !achados[v.k]; });
+  // Enquanto ainda há arquivo sendo lido, o botão espera: senão quem clica
+  // rápido confere os números só com o cadastro.
+  btGerar.disabled = faltam.length > 0 || lendo;
+  nota.textContent = faltam.length
+    ? 'Faltam: ' + faltam.map(function(v){ return v.rot.split('—')[0].trim(); }).join(', ')
+    : '';
+}
+
+async function receber(lista){
+  btPub.hidden = true; previa.innerHTML = ''; novoJson = null;
+  lendo = true; pintarVagas();
+  var erros = [];
+  for(var i = 0; i < lista.length; i++){
+    var f = lista[i];
+    aviso('Lendo <b>' + f.name + '</b>…', 'aguarde');
+    try{
+      var buf = await f.arrayBuffer();
+      var wb = await MotorPainel.lerPlanilhaBuf(buf);
+      var k = detectar(wb);
+      if(!k){ erros.push(f.name + ' — não reconheci esse relatório'); continue; }
+      if(IGNORADOS[k]){ erros.push(f.name + ' — ' + IGNORADOS[k]); continue; }
+      var linhas = wb.abas.reduce(function(s, a){ return s + ((a.linhas || []).length); }, 0);
+      achados[k] = { nome: f.name, wb: wb, buf: buf, linhas: linhas };
+    }catch(e){
+      erros.push(f.name + ' — ' + e.message);
+    }
+    pintarVagas();
+  }
+  lendo = false; pintarVagas();
+  aviso(erros.length ? erros.join('<br>') : '', 'erro');
+}
+
+// Quantos alunos numa lista de erro, no JSON de hoje ou no novo.
+function nErro(j, id){
+  var e = (j.erros || []).filter(function(x){ return x.id === id; })[0];
+  return e ? e.n : 0;
+}
+
+function linhaPrevia(rot, antes, depois){
+  var d = depois - antes;
+  var cls = d > 0 ? 'sobe' : d < 0 ? 'desce' : '';
+  return '<tr><td>' + rot + '</td><td>' + nf(antes) + '</td><td>' + nf(depois) +
+    '</td><td class="dif ' + cls + '">' + (d === 0 ? '—' : (d > 0 ? '+' : '') + nf(d)) + '</td></tr>';
+}
+
+btGerar.addEventListener('click', async function(){
+  btGerar.disabled = true; btPub.hidden = true; previa.innerHTML = '';
+  try{
+    var entrada = {};
+    ['totvs','marketplace','financeiro'].forEach(function(k){
+      entrada[k] = achados[k] ? { nome: achados[k].nome, buf: achados[k].buf } : null;
+    });
+    novoJson = await MotorPainel.processar(entrada, function(n, t){
+      aviso('<b>' + n + ' de 5</b> &middot; ' + t + '…', 'aguarde');
+    });
+    var a = D, b = novoJson;
+    previa.innerHTML = '<div class="previa"><table>' +
+      '<tr><th>&nbsp;</th><th>hoje</th><th>novo</th><th>&Delta;</th></tr>' +
+      linhaPrevia('Captação — alunos no acompanhamento', a.cap.total, b.cap.total) +
+      linhaPrevia('Captação — matriculados', a.cap.matriculados, b.cap.matriculados) +
+      linhaPrevia('Captação — pré-matriculados', a.cap.pre, b.cap.pre) +
+      linhaPrevia('1ª cota paga', a.cap.pagos, b.cap.pagos) +
+      linhaPrevia('Alunos com duas primeiras cotas', nErro(a, 'cota_duplicada'), nErro(b, 'cota_duplicada')) +
+      linhaPrevia('Pagos na Layers sem baixa no Totvs', nErro(a, 'sem_baixa'), nErro(b, 'sem_baixa')) +
+      '</table></div>';
+    aviso('Números conferidos. Publicar substitui o painel para todo mundo que abrir o link.', 'pronto');
+    btPub.hidden = false;
+  }catch(e){
+    aviso('Não consegui processar: ' + e.message, 'erro');
+  }
+  btGerar.disabled = false;
+});
+
+btPub.addEventListener('click', async function(){
+  btPub.disabled = true;
+  aviso('Publicando…', 'aguarde');
+  try{
+    var art = await usarArtifact();
+    if(!art) throw new Error('esta visualização não tem permissão para publicar');
+    var tpl = deb64(document.getElementById('fonte').textContent.trim());
+    // Os marcadores são montados em pedaços de propósito: se aparecessem
+    // inteiros aqui, o construtor da página trocaria esta linha em vez das
+    // tags de verdade.
+    var MD = '__' + 'DATA__', MT = '__' + 'TPL__';
+    // Replacement por função: $& e $' que apareçam dentro do JSON não podem
+    // ser lidos como referência de captura.
+    var dj = JSON.stringify(novoJson).replace(/<\//g, '<\\u002f');
+    var mb = b64(tpl);
+    var doc = tpl.replace(MD, function(){ return dj; })
+                 .replace(MT, function(){ return mb; });
+    await art.publish(doc);
+    aviso('Publicado. A página vai recarregar com os dados novos.', 'pronto');
+  }catch(e){
+    aviso(e && e.code === 'conflict'
+      ? 'Alguém publicou antes de você. A página vai recarregar; refaça a importação.'
+      : 'Não consegui publicar: ' + ((e && e.message) || e), 'erro');
+    btPub.disabled = false;
+  }
+});
+
+$('impLimpar').addEventListener('click', function(){
+  achados = {}; novoJson = null; previa.innerHTML = ''; btPub.hidden = true;
+  aviso('', ''); pintarVagas();
+});
+
+/* base64 em pedaços: a página inteira não cabe num apply() só */
+function b64(s){
+  var u = new TextEncoder().encode(s), r = '';
+  for(var i = 0; i < u.length; i += 0x8000) r += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(r);
+}
+function deb64(s){
+  var bin = atob(s), u = new Uint8Array(bin.length);
+  for(var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(u);
+}
+
+/* abrir, fechar, arrastar */
+var solta = $('impSolta'), input = $('impFile');
+solta.addEventListener('click', function(){ input.click(); });
+solta.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); input.click(); } });
+input.addEventListener('change', function(){ receber(Array.from(input.files)); input.value = ''; });
+['dragenter','dragover'].forEach(function(ev){
+  solta.addEventListener(ev, function(e){ e.preventDefault(); solta.classList.add('sobre'); });
+});
+['dragleave','drop'].forEach(function(ev){
+  solta.addEventListener(ev, function(e){ e.preventDefault(); solta.classList.remove('sobre'); });
+});
+solta.addEventListener('drop', function(e){ receber(Array.from(e.dataTransfer.files)); });
+fundo.addEventListener('click', function(e){ if(e.target === fundo) fechar(); });
+$('impX').addEventListener('click', fechar);
+document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && !fundo.hidden) fechar(); });
+function fechar(){ fundo.hidden = true; }
+
+var btAbrir = document.getElementById('abrirImp');
+btAbrir.addEventListener('click', function(){ pintarVagas(); fundo.hidden = false; input.focus(); });
+
+// Fora do claude.ai não existe claude.use: o arquivo local tem de abrir mesmo
+// assim, só sem o botão de publicar.
+function usarArtifact(){
+  try{
+    if(typeof claude === 'undefined' || !claude || typeof claude.use !== 'function')
+      return Promise.resolve(null);
+    return claude.use('artifact').catch(function(){ return null; });
+  }catch(e){ return Promise.resolve(null); }
+}
+
+// Quem só pode ver não publica: o botão some em vez de prometer o que não faz.
+btAbrir.hidden = true;
+usarArtifact().then(function(art){ if(art) btAbrir.hidden = false; });
+})();
+</script>

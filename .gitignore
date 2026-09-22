@@ -1,0 +1,20 @@
+# Dados de aluno nunca entram no repositório: nome, RA, série, situação e
+# valores de 500 menores. O que sai daqui é código, não base.
+dados/
+painel-app.html
+painel-app.doc.html
+painel/painel-atual.html
+relatorio-rastreio-0309.html
+painel/motor-web.js
+
+# Exports do Totvs e da Layers, se alguém copiar para cá por engano
+*.xlsx
+*.XLSX
+*.xls
+*.XLS
+
+# Lixo
+, ticketFora.map*
+*.tmp
+.DS_Store
+Thumbs.db
