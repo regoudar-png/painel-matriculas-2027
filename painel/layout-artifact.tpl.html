@@ -681,12 +681,14 @@ function listas(){
 function trilha(i){
   // Duas portas de pagamento: M = Marketplace (Layers), P = Portal do aluno (Totvs).
   const g = i.pagoM ? ['on', i.parcial?'PAGO-M*':'PAGO-M']
+          : i.credito ? ['on','CRÉDITO']
           : i.pagoP ? ['on', i.parcial?'PAGO-P*':'PAGO-P']
           : i.pg==='Estornado' ? ['wa','ESTORNO']
           : i.pg ? ['wa','VENCIDO'] : ['no','SEM PAGTO'];
   // A planilha das unidades saiu do processo: a trilha tem duas fontes.
   const t = i.ra ? ['on','TOTVS'] : ['no','TOTVS'];
   const dica=[ i.pagoM ? ('Pago no Marketplace'+(i.parcial?' · cota parcial: falta R$ '+Math.round(i.falta)+' de '+i.cotaEsperada:''))
+      : i.credito ? ('Pago com nota de crédito de R$ '+brl2(i.credito.valor).replace('R$ ','')+(i.credito.deQuem?' — crédito de '+i.credito.deQuem:'')+(i.credito.dt?', em '+i.credito.dt:''))
       : i.pagoP ? ('Pago pelo Portal do aluno'+(i.finDt?' em '+i.finDt:'')+(i.parcial?' · cota parcial: falta R$ '+Math.round(i.falta)+' de '+i.cotaEsperada:''))
       : i.pg ? ('Marketplace: '+i.pg)
       : (i.baixaZero ? 'Cota baixada no Totvs por R$ 0,00'+(i.finDtZero?' em '+i.finDtZero:'')+' — nenhum dinheiro entrou'
@@ -868,6 +870,8 @@ function qualidade(){
   if(q.complementares) partes.push(nf(q.complementares) + ' matrículas de Semi-Integral fora da captação (é contrato por cima da matrícula regular)');
   if((q.sugestoes || []).length) partes.push(nf(q.sugestoes.length) + ' nomes quase iguais aguardando confirmação');
   if(q.linhasRepetidas) partes.push(nf(q.linhasRepetidas) + ' linhas repetidas do Totvs unificadas');
+  const cred = q.pagoComCredito || [];
+  if(cred.length) partes.push(nf(cred.length) + ' cota' + (cred.length>1?'s':'') + ' paga' + (cred.length>1?'s':'') + ' com nota de crédito da família (' + cred.map(function(x){return esc(x.aluno)}).join(', ') + ')');
   const resp = q.pedidoNoNomeDoResponsavel || [];
   if(resp.length) partes.push(nf(resp.length) + ' pedido' + (resp.length>1?'s':'') + ' da Layers no nome do responsável, ligado' + (resp.length>1?'s':'') + ' ao aluno pelo CPF (' + resp.map(function(x){return esc(x.aluno)}).join(', ') + ')');
   let h = '<div class="nota" style="border-top:0">' + (partes.join(' · ') || 'sem avisos') + '</div>';

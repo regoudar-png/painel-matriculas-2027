@@ -333,6 +333,7 @@ const SERVICO_ENTRADA = /1ª Cota de Mensalidade|Reserva de vaga/i;
 // Mensalidade pura — não a 1ª cota, não a reserva. Só quem tem contrato
 // lançado no Totvs aparece aqui; quem está apenas liberado não tem parcela.
 const SERVICO_MENSALIDADE = /(^|- )Mensalidade$/i;
+const SERVICO_CREDITO = /Nota de Cr[ée]dito/i;
 
 // Valor da 1ª cota: R$ 300 nas unidades, R$ 600 em Américas (Recreio).
 // A mensalidade não entra nesta conta — o que se rastreia é a cota de entrada.
@@ -342,7 +343,7 @@ const cotaEsperada = filial => /RECREIO/i.test(String(filial||'')) ? COTA_RECREI
 function lerFinanceiro(caminho){
   // Sem a ficha o painel roda sem os rastreios financeiros — mapas vazios e a
   // marca de ausência, para ninguém aparecer como 'sem financeiro' por engano.
-  if(!caminho) return { porRA: new Map(), mensPorRA: new Map(), cobranca: new Map(), relato: { ausente: true } };
+  if(!caminho) return { porRA: new Map(), mensPorRA: new Map(), cobranca: new Map(), creditos: new Map(), relato: { ausente: true } };
   const { abas } = abrir(caminho);
   const aba = abas.filter(a=>a.linhas).sort((a,b)=>b.linhas.length-a.linhas.length)[0];
   const linhas = aba.linhas.slice(1).filter(r => r && r[3]);
@@ -449,7 +450,22 @@ function lerFinanceiro(caminho){
   }
 
   const todos = [...porRA.values()];
-  return { porRA, mensPorRA, cobranca, relato: {
+  // Nota de crédito baixada: dinheiro que a família tem a favor, normalmente de
+  // um irmão que desistiu. Fica no RA de quem gerou, mas serve para toda a
+  // família — por isso o índice é o CPF do responsável financeiro.
+  const creditos = new Map();
+  for(const r of linhas){
+    if(!SERVICO_CREDITO.test(String(r[34] || ''))) continue;
+    const pago = num(r[44]) || 0;
+    if(!(pago > 0)) continue;
+    const cpf = String(r[8] || '').replace(/\D/g, '');
+    if(cpf.length < 9) continue;
+    if(!creditos.has(cpf)) creditos.set(cpf, []);
+    creditos.get(cpf).push({ valor: pago, dt: ehData(r[45]) ? String(r[45]).trim() : null,
+      ra: r[3], aluno: String(r[4] || '').trim() });
+  }
+
+  return { porRA, mensPorRA, cobranca, creditos, relato: {
     linhas: linhas.length, entradas: entrada.length, alunos: todos.length,
     cotaCompleta: todos.filter(x=>x.pago).length,
     parciais: todos.filter(x=>x.parcial).length,
@@ -610,7 +626,7 @@ function errosDe(p, semFicha){
   // a cota quitada e o painel vê pendente — as duas coisas estão certas.
   const entrouDinheiro = pagouLayers || !!(p.fin && p.fin.valor > 0) ||
     !!(p.cob && p.cob.entradas.some(x => x.baixado));
-  if(!entrouDinheiro && p.cob && p.cob.entradas.some(x => x.zerada)) e.push('baixa_sem_valor');
+  if(!entrouDinheiro && !p.credito && p.cob && p.cob.entradas.some(x => x.zerada)) e.push('baixa_sem_valor');
   if(!t || !(MATRICULADO.has(t.sit) || PRE.has(t.sit))) return e;
   if(!p.cob || (!p.cob.entradas.length && !p.cob.mensalidades)) e.push('sem_financeiro');
   else {
@@ -746,6 +762,25 @@ function cruzar(caminhoTotvs, caminhoUnidades, caminhoMkt, caminhoFin){
   const captacao = pessoas.filter(p => !semRastro(p));
   pessoas.length = 0; captacao.forEach(p => pessoas.push(p));
 
+  // Cota baixada por R$ 0,00 e nenhum dinheiro no RA: se a família tem nota de
+  // crédito baixada, foi com ela que a cota foi paga. Cada nota vale uma vez.
+  const creditos = fin.creditos || new Map();
+  const usados = [];
+  pessoas.forEach(p => {
+    if(!p.totvs || !p.cob) return;
+    const entrou = !!(p.mkt && p.mkt.status === 'Pago') || !!(p.fin && p.fin.valor > 0) ||
+      p.cob.entradas.some(x => x.baixado);
+    if(entrou || !p.cob.entradas.some(x => x.zerada)) return;
+    const cpf = String(p.totvs.cpfResp || '').replace(/\D/g, '');
+    const livre = (creditos.get(cpf) || []).find(c => !c._usado);
+    if(!livre) return;
+    livre._usado = true;
+    p.credito = livre;
+    usados.push({ aluno: p.totvs.aluno, ra: p.totvs.ra, unidade: CODE[p.code] || p.code,
+      valor: livre.valor, dt: livre.dt, deQuem: livre.aluno });
+  });
+  tv.relato.pagoComCredito = usados;
+
   const semPlanilha = un.length === 0;
   pessoas.forEach(p => { p.cat = categoria(p, semPlanilha); p.erros = errosDe(p, !!fin.relato.ausente); });
 
@@ -772,7 +807,8 @@ function cruzar(caminhoTotvs, caminhoUnidades, caminhoMkt, caminhoFin){
       pagoM: !!(g && g.status==='Pago'),
       // Venda estornada não é cota paga, ainda que a parcela siga baixada no
       // Totvs: nesse caso o que falta é reverter a baixa, não cobrar.
-      pagoP: !!(p.fin && p.fin.pago) && !(g && g.status==='Estornado'),
+      pagoP: (!!(p.fin && p.fin.pago) || !!p.credito) && !(g && g.status==='Estornado'),
+      credito: p.credito ? { valor: p.credito.valor, dt: p.credito.dt, deQuem: p.credito.aluno } : null,
       baixaNaoRevertida: !!(g && g.status==='Estornado' && p.fin && p.fin.pago),
       parcial: !!(p.fin && p.fin.parcial),
       falta: p.fin && p.fin.parcial ? p.fin.parcial.falta : null,
