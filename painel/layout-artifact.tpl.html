@@ -387,8 +387,8 @@ footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-si
 </div></header>
 
 <div class="wrap">
-  <div class="panorama" aria-label="Captação 2027">
-    <div class="pcard" id="tab-cap">
+  <div class="panorama" role="tablist" aria-label="Visões do painel">
+    <button class="pcard" type="button" id="tab-cap" role="tab" aria-selected="true" aria-controls="pane-cap">
       <div class="pc-top"><span class="sq" style="background:var(--ok)"></span>
         <span class="nm">Captação</span><span class="fonte">E-commerce · Totvs · Financeiro</span></div>
       <div class="pc-mid">
@@ -397,9 +397,9 @@ footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-si
           <span class="b" id="capB">155 pagaram a 1ª cota</span></span></div>
       <div class="pc-bar" id="capBar"></div>
       <div class="pc-legend" id="capLeg"></div>
-    </div>
+    </button>
 
-    <div class="pcard" id="tab-rem">
+    <button class="pcard" type="button" id="tab-rem" role="tab" aria-selected="false" aria-controls="pane-rem">
       <div class="pc-top"><span class="sq" style="background:var(--info)"></span>
         <span class="nm">Renovação</span><span class="fonte" id="remFonte">Totvs · Financeiro</span></div>
       <div class="pc-mid">
@@ -408,16 +408,17 @@ footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-si
           <span class="b" id="remB"></span></span></div>
       <div class="pc-bar" id="remBar"></div>
       <div class="pc-legend" id="remLeg"></div>
-    </div>
+    </button>
   </div>
 </div>
 
 <main class="wrap">
 
-  <!-- ================= CAPTAÇÃO ================= -->
-  <div id="pane-cap">
+  <!-- o filtro de unidade vale nas duas abas -->
+  <div class="ctrl" id="uniCap"></div>
 
-    <div class="ctrl" id="uniCap"></div>
+  <!-- ================= CAPTAÇÃO ================= -->
+  <div id="pane-cap" role="tabpanel" aria-labelledby="tab-cap">
 
     <section style="margin-top:0">
       <div class="shead"><h2>Andamento das unidades</h2>
@@ -453,20 +454,23 @@ footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-si
         <span class="hint">o que ficou de fora e por quê</span></div>
       <div class="card" id="qualidade"></div>
     </section>
+  </div>
 
-    <section id="secRem">
-      <div class="shead"><h2>Renovação — anomalias de lançamento</h2>
-        <span class="hint" id="remHint"></span></div>
-      <div class="card" id="remAnom"></div>
-    </section>
-
-    <section id="secRemPlacar">
+  <!-- ================= RENOVAÇÃO ================= -->
+  <div id="pane-rem" role="tabpanel" aria-labelledby="tab-rem" hidden>
+    <section id="secRemPlacar" style="margin-top:0">
       <div class="shead"><h2>Renovação por unidade</h2>
         <span class="hint">renovados sobre os ativos · ticket mediano da anuidade</span></div>
       <div class="card scroll"><table>
         <thead><tr><th>#</th><th>Unidade</th><th class="num">Renovados</th><th class="num">Pré</th>
           <th class="num">Com anomalia</th><th class="num">Ticket médio</th><th class="num">Base do ticket</th></tr></thead>
         <tbody id="remPlacar"></tbody></table></div>
+    </section>
+
+    <section id="secRem">
+      <div class="shead"><h2>Renovação — anomalias de lançamento</h2>
+        <span class="hint" id="remHint"></span></div>
+      <div class="card" id="remAnom"></div>
     </section>
   </div>
 
@@ -505,13 +509,21 @@ function panorama(){
 }
 
 /* ---------- filtro de unidade ---------- */
+// O contador do chip é o da aba aberta: pendência na captação, anomalia na
+// renovação. Mostrar o número da outra aba fazia a unidade parecer limpa.
 function chipsUnidade(){
   const alvo=document.getElementById('uniCap');
+  const rem=aba==='rem' && D.rem;
+  const conta=c=>{
+    if(!rem) return (cap.placar.find(p=>p.code===c)||{falta:0}).falta;
+    return (D.rem.placar.find(p=>p.code===c)||{anomalos:0}).anomalos||0;
+  };
   alvo.innerHTML='<button class="tab" type="button" data-u="" aria-pressed="'+(!uni)+'">Rede toda</button>'+
-    ORDER.map(c=>{const s=cap.placar.find(p=>p.code===c)||{falta:0};
-      return '<button class="tab" type="button" data-u="'+c+'" aria-pressed="'+(uni===c)+'" title="'+esc(CODE[c])+'">'+
-      '<span class="sq" style="background:'+(s.falta?'var(--crit)':'var(--ok)')+'"></span>'+
-      SIGLA[c]+'<span class="c">'+s.falta+'</span></button>';}).join('');
+    ORDER.map(c=>{const q=conta(c);
+      return '<button class="tab" type="button" data-u="'+c+'" aria-pressed="'+(uni===c)+'" title="'+
+      esc(CODE[c])+(rem?' · alunos com anomalia na renovação':' · pendências na captação')+'">'+
+      '<span class="sq" style="background:'+(q?'var(--crit)':'var(--ok)')+'"></span>'+
+      SIGLA[c]+'<span class="c">'+q+'</span></button>';}).join('');
 }
 document.getElementById('uniCap').addEventListener('click',e=>{
   const b=e.target.closest('[data-u]'); if(!b)return;
@@ -851,11 +863,20 @@ document.getElementById('erros').addEventListener('click', ev => {
 
 /* ---------- abas ---------- */
 function trocarAba(a){
-  aba=a;
-  document.getElementById('tab-cap').setAttribute('aria-selected',String(a==='cap'));
-    document.getElementById('pane-cap').hidden = a!=='cap';
+  aba = a;
+  for(const k of ['cap','rem']){
+    const b = document.getElementById('tab-'+k), p = document.getElementById('pane-'+k);
+    if(b) b.setAttribute('aria-selected', String(a===k));
+    if(p) p.hidden = a!==k;
   }
-document.getElementById('tab-cap').addEventListener('click',()=>trocarAba('cap'));
+  // A seleção de unidade atravessa as abas; o resto do filtro é da captação.
+  desenhar();
+  scrollTo({ top:0, behavior:'smooth' });
+}
+for(const k of ['cap','rem']){
+  const b = document.getElementById('tab-'+k);
+  if(b) b.addEventListener('click', () => trocarAba(k));
+}
 
 function desenhar(){
   chipsUnidade(); panorama(); kpis(); placar(); secaoErros(); listas(); renovacao();
@@ -893,8 +914,10 @@ document.getElementById('tema').addEventListener('click',()=>{
 function renovacao(){
   const R = D.rem;
   const esconder = (id, v) => { const e = document.getElementById(id); if(e) e.hidden = !v; };
-  if(!R){ esconder('tab-rem', false); esconder('secRem', false); esconder('secRemPlacar', false); return; }
-  esconder('tab-rem', true); esconder('secRem', true); esconder('secRemPlacar', true);
+  if(!R){ esconder('tab-rem', false); esconder('pane-rem', false);
+    if(aba === 'rem') trocarAba('cap');
+    return; }
+  esconder('tab-rem', true);
 
   const noEsc = l => uni ? l.filter(i => i.u === uni) : l;
   const alvo = uni ? (R.placar.find(p => p.code === uni) || { total:0, renovados:0, pre:0, ticket:null, nTicket:0, anomalos:0 }) : R;
