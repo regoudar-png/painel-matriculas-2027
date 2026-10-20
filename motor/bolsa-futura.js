@@ -86,6 +86,7 @@ for (let i = 1; i < fin.length; i++) {
   const k = String(r[24] || r[23] || '~') + '|' + r[17];
   let c = a.cs.find(x => x.k === k);
   if (!c) a.cs.push(c = { k, id: r[24] || null, trilha: r[17], sit: r[26] || null,
+    curso: String(r[14] || '').trim(),
     sitMat: String(r[21] || '').trim(), planoPg: String(r[25] || '').trim(),
     qtd: num(r[27]) || null, ls: [] });
   c.ls.push(r);
@@ -111,8 +112,14 @@ for (const a of alunos.values()) for (const c of a.cs) {
   c.mensal = vivas.length ? num(vivas[0][42]) : 0;
   c.bolsa = c.ls.reduce((s, r) => s + num(r[43]), 0);
   c.pct = c.cheia ? c.bolsa / c.cheia : 0;
+  c.nCotas = cotas.filter(r => String(r[47] || '') !== 'Cancelado').length;
+  // Contraturno (CCT / Semi-Integral) é serviço à parte, contratado junto com
+  // a série. Dois contratos assim não são duas trilhas: um deles é o integral.
+  c.complementar = /^CCT$/i.test(c.curso) || /semi-?integral/i.test(String(c.trilha || ''));
   c.fantasma = c.ls.every(r => !r[42] && String(r[47] || '') === 'SEM BOLETO');
   c.ativo = c.sit === 'ATIVO' && !c.fantasma;
+  // O complementar não entra na conta da trilha do aluno.
+  c.conta = c.ativo && !c.complementar;
   c.plano = c.avista ? 'avista' : c.nMens === 12 ? 'mensal'
     : c.nMens === 0 ? 'vazio' : 'parcial';
   // A anuidade líquida: na à vista é o lançamento único, no mensal são as 12
@@ -144,7 +151,7 @@ const bol = c => c.pct > 0 ? pc(c.pct) : brl(c.bolsa);
 
 for (const a of alunos.values()) {
   const vivos = a.cs.filter(c => !c.fantasma);
-  const ativos = vivos.filter(c => c.ativo);
+  const ativos = vivos.filter(c => c.conta);
   const bons = ativos.filter(BOM);
   const sobrando = ativos.filter(c => CHEIO(c) || VAZIO(c));
   const avancou = a.mats.some(m => AVANCOU.has(m.sit));
@@ -156,6 +163,7 @@ for (const a of alunos.values()) {
   else if (ativos.some(CHEIO)) a.caso = 'sem-bolsa';
   else if (ativos.length && ativos.every(VAZIO)) a.caso = 'sem-mensalidade';
   else if (ativos.some(PARCIAL)) a.caso = 'parcelas-fora';
+  else if (ativos.some(c => c.plano === 'mensal' && !c.nCotas)) a.caso = 'sem-cota';
   else if (!ativos.length && vivos.some(c => c.bolsa > 0)) a.caso = 'cancelado';
   else if (!vivos.length && avancou) a.caso = 'sem-contrato';
   else if (!ativos.length && vivos.length && avancou) a.caso = 'cancelado-sem-bolsa';
@@ -179,8 +187,9 @@ const CASOS = {
   cancelado: { t:'REFAZER O CONTRATO', ordem:5, nome:'Contrato com a bolsa cancelado' },
   'sem-contrato': { t:'GERAR O CONTRATO', ordem:6, nome:'Matrícula sem contrato' },
   'parcelas-fora': { t:'CONFERIR AS PARCELAS', ordem:7, nome:'Parcelas diferentes de 12' },
-  'cancelado-sem-bolsa': { t:'CONFERIR', ordem:8, nome:'Contrato cancelado sem bolsa' },
-  'nao-renovou': { t:'CONFERIR', ordem:9, nome:'Proposta entregue, renovação não efetivada' }
+  'sem-cota': { t:'LANÇAR A COTA', ordem:8, nome:'Contrato sem cota de entrada' },
+  'cancelado-sem-bolsa': { t:'CONFERIR', ordem:9, nome:'Contrato cancelado sem bolsa' },
+  'nao-renovou': { t:'CONFERIR', ordem:10, nome:'Proposta entregue, renovação não efetivada' }
 };
 
 const lista = [...alunos.values()].filter(a => a.caso).sort((x, y) =>
@@ -191,10 +200,12 @@ const lista = [...alunos.values()].filter(a => a.caso).sort((x, y) =>
 /* Para cada contrato, o que fazer com ele. */
 for (const a of lista) {
   const vivos = a.cs.filter(c => !c.fantasma);
-  const ativos = vivos.filter(c => c.ativo);
+  const ativos = vivos.filter(c => c.conta);
   const guardar = ativos.filter(BOM).sort((x, y) => y.pct - x.pct)[0] ||
                   ativos.filter(c => c.bolsa > 0).sort((x, y) => y.pct - x.pct)[0];
-  const quieto = c => ({ c, fazer:'—', porque: c.sit === 'CANCELADO'
+  const quieto = c => ({ c, fazer:'—', porque: c.complementar
+    ? 'Contraturno (Semi-Integral), contratado à parte da série. Não é trilha em dobro: fica como está.'
+    : c.sit === 'CANCELADO'
     ? 'Contrato cancelado' + (c.bolsa > 0 ? ', tinha bolsa de ' + bol(c) + '.' : ', sem bolsa.')
     : 'Sem cobrança própria.' });
   a.linhas = (vivos.length ? vivos : [null]).map(c => {
@@ -226,6 +237,9 @@ for (const a of lista) {
     if (a.caso === 'parcelas-fora') return c.ativo && PARCIAL(c)
       ? { c, fazer:'CONFERIR AS PARCELAS', porque:'O contrato tem ' + c.nMens +
           ' mensalidades no lugar de 12. Conferir o plano de pagamento antes de cobrar.' }
+      : quieto(c);
+    if (a.caso === 'sem-cota') return c.conta && c.plano === 'mensal' && !c.nCotas
+      ? { c, fazer:'LANÇAR A COTA', porque:'As 12 mensalidades estão lançadas e nenhuma cota de entrada: a família não tem o boleto da matrícula.' }
       : quieto(c);
     if (a.caso === 'cancelado') return c.bolsa > 0
       ? { c, fazer:'REFAZER O CONTRATO', porque:'Este contrato tinha a bolsa de ' + bol(c) +
@@ -349,6 +363,8 @@ if (require.main === module) {
    ['LANÇAR A BOLSA — contrato ativo, correto no mais, mas sem nenhuma bolsa lançada. A família está com uma anuidade de tabela cheia no boleto.', S.legenda],
    ['REFAZER O CONTRATO — o contrato que tinha a bolsa foi cancelado e nada entrou no lugar. O aluno ficou sem contrato de 2027.', S.legenda],
    ['GERAR O CONTRATO — a matrícula está fechada no cadastro e nenhuma mensalidade foi lançada.', S.legenda],
+   ['LANÇAR A COTA — as 12 mensalidades estão lançadas e falta a cota de entrada: a família não tem o boleto da matrícula.', S.legenda],
+   ['Linha com — não pede ação. A mais comum é o contraturno (Semi-Integral / CCT), que é serviço contratado à parte da série: dois contratos assim não são trilha em dobro.', S.legenda],
    ['CONFERIR — contrato cancelado sem bolsa, ou proposta entregue e renovação não efetivada: antes de mexer, confirmar com a família.', S.legenda],
    ['As contas', S.titulo],
    ['Anuidade de tabela é a soma do VALOR_ORIGINAL das 12 mensalidades mais a cota de entrada. Bolsa lançada é a soma de BOLSA/DEDUÇÕES. O que a família paga é a diferença — a mesma conta que o painel usa no ticket.', S.legenda],
