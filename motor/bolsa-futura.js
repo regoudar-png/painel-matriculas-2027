@@ -25,7 +25,7 @@
 const fs = require('fs');
 const path = require('path');
 const { lerPlanilha } = require('./ler-xlsx.js');
-const { pasta } = require('./escrever-xlsx.js');
+const { pasta, colName } = require('./escrever-xlsx.js');
 
 const B = 'C:/Users/ti/Desktop/Matrículas 2027/';
 const DIA = process.env.DIA || '20 de outubro';
@@ -80,9 +80,13 @@ for (let i = 1; i < cad.length; i++) {
 for (let i = 1; i < fin.length; i++) {
   const r = fin[i];
   const a = alunos.get(r[3]); if (!a) continue;
-  const k = String(r[23] || '~') + '|' + r[17];
+  // CODCONTRATO é o número que a unidade procura no Totvs. A coluna TURMA vem
+  // vazia neste export; a trilha entra na chave porque o mesmo contrato pode
+  // não aparecer e duas trilhas nunca são o mesmo contrato.
+  const k = String(r[24] || r[23] || '~') + '|' + r[17];
   let c = a.cs.find(x => x.k === k);
-  if (!c) a.cs.push(c = { k, id: r[23] || null, trilha: r[17], sit: r[26] || null,
+  if (!c) a.cs.push(c = { k, id: r[24] || null, trilha: r[17], sit: r[26] || null,
+    sitMat: String(r[21] || '').trim(), planoPg: String(r[25] || '').trim(),
     qtd: num(r[27]) || null, ls: [] });
   c.ls.push(r);
 }
@@ -231,11 +235,16 @@ for (const a of lista) {
       ? 'Contrato cancelado com bolsa de ' + bol(c) + '.'
       : 'Contrato cancelado e sem bolsa: conferir se a família desistiu da renovação.' };
   });
-  // Quanto do ticket está inflado por este aluno.
+  // Quanto do ticket está inflado, na linha do contrato que infla — assim a
+  // coluna soma sem contar o mesmo aluno duas vezes.
   const noTicket = a.cs.find(c => c.ativo && c.bolsa <= 0 && c.anual != null);
   a.noTicket = noTicket ? noTicket.anual : null;
   a.anualCerta = noTicket && a.refPct != null ? noTicket.anual * (1 - a.refPct) : null;
   a.inflado = a.anualCerta != null ? noTicket.anual - a.anualCerta : null;
+  a.linhas.forEach(o => { if (o.c && o.c === noTicket) {
+    o.anualCerta = a.anualCerta; o.inflado = a.inflado; } });
+  // Quantas matrículas o aluno tem de pé no cadastro: é o que mostra a dobra.
+  a.nAtivas = a.mats.filter(x => AVANCOU.has(x.sit)).length;
 }
 
 module.exports = { alunos, lista, CASOS, CODE, ORDER, brl };
@@ -250,12 +259,14 @@ if (require.main === module) {
   const m = (v, s) => ({ v: Math.round((v || 0) * 100) / 100, t:'m', s: s == null ? S.moeda : s });
   const p = (v, s) => ({ v: Math.round((v || 0) * 10000) / 10000, t:'n', s: s == null ? S.pct : s });
 
-  const CAB = ['Unidade','Aluno','RA','Série','Situação da matrícula','O QUE FAZER','Por quê',
-    'Situação','Trilha do contrato','Contrato','Situação do contrato','Mensalidades',
-    'Mensalidade de tabela','Anuidade de tabela','Bolsa lançada','Bolsa %',
-    'Anuidade que entra no ticket','Bolsa Futura de referência','Fonte da referência',
-    'Anuidade com a bolsa','Infla o ticket em','1ª cobrança','Paga em 2026'];
-  const COLS = [18,32,13,8,22,20,58,30,30,11,14,12,15,15,14,9,16,13,22,16,15,24,13];
+  // Toda linha se sustenta sozinha: unidade, aluno, RA, série e situação
+  // repetem em cada contrato, senão o filtro do Excel perde a linha de baixo.
+  const CAB = ['Unidade','Aluno','RA','Série','Matrículas ativas','Situação desta matrícula',
+    'O QUE FAZER','Por quê','Situação','Trilha do contrato','Contrato','Plano de pagamento',
+    'Situação do contrato','Mensalidades','Mensalidade de tabela','Anuidade de tabela',
+    'Bolsa lançada','Bolsa %','Anuidade que entra no ticket','Bolsa Futura de referência',
+    'Fonte da referência','Anuidade com a bolsa','Infla o ticket em','1ª cobrança','Paga em 2026'];
+  const COLS = [18,32,13,8,11,22,20,58,30,30,11,34,14,12,15,15,14,9,16,13,22,16,15,24,13];
 
   const L = [{ cells: CAB.map(x => t(x, S.hdr)), h:34 }];
   let bloco = 0;
@@ -264,19 +275,21 @@ if (require.main === module) {
     const st = { txt: z ? S.lar : S.txt, num: z ? S.larNum : S.num,
                  moeda: z ? S.larMoeda : S.moeda, pct: z ? S.larNum : S.pct };
     const sits = [...new Set(a.mats.map(x => x.sit))].join(' / ');
-    a.linhas.forEach((o, i) => {
+    a.linhas.forEach(o => {
       const c = o.c;
       L.push({ cells: [
-        t(i ? '' : CODE[a.u] || a.u, st.txt),
-        t(i ? '' : a.nome, st.txt),
-        t(i ? '' : a.ra, st.txt),
-        t(i ? '' : a.serie, st.num),
-        t(i ? '' : sits, st.txt),
-        t(o.fazer, /EXCLUIR|LANÇAR|REFAZER|GERAR/.test(o.fazer) ? S.acao : st.num),
+        t(CODE[a.u] || a.u, st.txt),
+        t(a.nome, st.txt),
+        t(a.ra, st.txt),
+        t(a.serie, st.num),
+        n(a.nAtivas, st.num),
+        t(c && c.sitMat ? c.sitMat : sits, st.txt),
+        t(o.fazer, /EXCLUIR|LANÇAR|REFAZER|GERAR|ESCOLHER/.test(o.fazer) ? S.acao : st.num),
         t(o.porque, st.txt),
-        t(i ? '' : CASOS[a.caso].nome, st.txt),
+        t(CASOS[a.caso].nome, st.txt),
         t(c ? c.trilha : '(sem contrato)', st.txt),
         t(c && c.id ? c.id : '', st.num),
+        t(c ? c.planoPg || '' : '', st.txt),
         t(c ? c.sit || '' : '', st.num),
         c ? n(c.nMens, st.num) : t('', st.num),
         c && c.mensal ? m(c.mensal, st.moeda) : t('', st.num),
@@ -284,12 +297,12 @@ if (require.main === module) {
         c && c.bolsa ? m(c.bolsa, st.moeda) : t('', st.num),
         c && c.bolsa ? p(c.pct, st.pct) : t('', st.num),
         c && c.ativo && c.anual != null ? m(c.anual, st.moeda) : t('', st.num),
-        i || a.refPct == null ? t('', st.num) : p(a.refPct, st.pct),
-        t(i ? '' : a.refFonte, st.txt),
-        i || a.anualCerta == null ? t('', st.num) : m(a.anualCerta, st.moeda),
-        i || a.inflado == null ? t('', st.num) : m(a.inflado, st.moeda),
+        a.refPct == null ? t('', st.num) : p(a.refPct, st.pct),
+        t(a.refFonte, st.txt),
+        o.anualCerta == null ? t('', st.num) : m(o.anualCerta, st.moeda),
+        o.inflado == null ? t('', st.num) : m(o.inflado, st.moeda),
         t(c ? c.cobranca : '', st.txt),
-        i || !a.pago26 ? t('', st.num) : m(a.pago26, st.moeda)
+        a.pago26 ? m(a.pago26, st.moeda) : t('', st.num)
       ] });
     });
   }
@@ -327,7 +340,9 @@ if (require.main === module) {
   const L3 = [];
   [['Como ler', S.titulo],
    ['A Bolsa Futura é a proposta de renovação entregue à família. Esta planilha reúne os alunos de rematrícula de 2027 cujo contrato ficou a preço de tabela cheia, ou que ficaram sem contrato válido.', S.legenda],
-   ['Cada aluno aparece com uma linha por contrato, na mesma faixa de cor. Quando ele tem dois contratos, as duas linhas ficam uma embaixo da outra: uma é a que fica de pé, a outra é a que sai.', S.legenda],
+   ['Cada aluno aparece com uma linha por contrato, na mesma faixa de cor. Unidade, aluno, RA, série e situação repetem em todas as linhas dele, para que o filtro do Excel não perca nenhuma.', S.legenda],
+   ['"Situação desta matrícula" é o status da trilha daquela linha, não do aluno: é por isso que o mesmo aluno pode aparecer Matriculado numa trilha e Pré-Matriculado na outra. "Matrículas ativas" conta quantas ele tem de pé.', S.legenda],
+   ['"Anuidade com a bolsa" e "Infla o ticket em" aparecem só na linha do contrato que infla o ticket, para a coluna somar sem contar o mesmo aluno duas vezes.', S.legenda],
    ['O QUE FAZER', S.titulo],
    ['EXCLUIR O CONTRATO — contrato em dobro. O aluno escolheu uma trilha, depois trocou, e os dois contratos ficaram ativos. Fica o que tem a bolsa; cancelar o de tabela cheia.', S.legenda],
    ['ESCOLHER A TRILHA — o aluno tem contrato ativo em duas trilhas e as duas têm bolsa. Não há linha errada para cancelar: a família escolhe, e a outra sai.', S.legenda],
@@ -347,7 +362,8 @@ if (require.main === module) {
   ].forEach(([x, s]) => L3.push({ cells:[t(x, s)], h: s === S.titulo ? 22 : undefined }));
 
   const buf = pasta([
-    { nome:'Para resolver', cols:COLS, linhas:L, congelar:1 },
+    { nome:'Para resolver', cols:COLS, linhas:L, congelar:1,
+      filtro: 'A1:' + colName(COLS.length - 1) + L.length },
     { nome:'Resumo', cols:[34,10,18,22,20,18], linhas:L2 },
     { nome:'Como ler', cols:[130], linhas:L3 }
   ]);

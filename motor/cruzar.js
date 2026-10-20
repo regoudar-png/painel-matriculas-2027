@@ -486,11 +486,12 @@ function lerFinanceiro(caminho){
     const ehMens = SERVICO_MENSALIDADE.test(serv), ehEnt = SERVICO_ENTRADA.test(serv);
     const ehAno = SERVICO_ANUIDADE.test(serv);
     if(!ehMens && !ehEnt && !ehAno) continue;
-    // A coluna TURMA do export repete entre as trilhas do mesmo aluno: sem a
-    // descrição na chave, dois contratos de 12 viravam um de 24 parcelas.
-    const chave = r[3] + '|' + String(r[23] || '-') + '|' + String(r[17] || '').trim();
+    // CODCONTRATO é o contrato de verdade; a coluna TURMA vem vazia neste
+    // export. Sem ele na chave, o contrato cancelado e o que entrou no lugar
+    // viravam um só, com 24 parcelas e a situação de um dos dois.
+    const chave = r[3] + '|' + String(r[24] || r[23] || '-') + '|' + String(r[17] || '').trim();
     if(!contratosRem.has(chave)) contratosRem.set(chave, { ra: r[3], aluno: String(r[4]||'').trim(),
-      turma: String(r[23] || '-'), trilha: String(r[17] || '').trim(), serie: r[16] || '',
+      turma: String(r[24] || r[23] || '-'), trilha: String(r[17] || '').trim(), serie: r[16] || '',
       filial: r[2] || '', sit: String(r[26] || '').trim(), mens: [], comBolsa: 0, entradas: 0,
       entradasPagas: 0, bolsas: new Set(),
       avista: false, anuidade: 0, anuidadePaga: false });
@@ -938,13 +939,14 @@ function montarRenovacao(tv, fin){
     a.matriculado = a.linhas.some(l => l.matriculado);
     a.pre = !a.matriculado && a.linhas.some(l => l.pre);
     a.turmas = [...new Set(a.linhas.map(l => l.turma).filter(Boolean))];
-    a.trilhas = [...new Set(a.contratos.map(c => c.trilha).filter(Boolean))];
-    // Duas matrículas ativas: ou duas linhas no cadastro, ou dois contratos na
-    // ficha. Os dois caminhos valem — o Totvs nem sempre reflete nos dois.
-    a.duplicado = a.linhas.length > 1 || a.contratos.length > 1 || a.turmas.length > 1;
-    // Plano do ano fechado: as 12 mensalidades ou a anuidade à vista.
     // Contrato cancelado não é plano de ninguém: fica de fora das contas.
     const vivos = a.contratos.filter(c => c.sit !== 'CANCELADO');
+    a.trilhas = [...new Set(vivos.map(c => c.trilha).filter(Boolean))];
+    // Duas matrículas ativas: ou duas linhas no cadastro, ou contrato vivo em
+    // duas trilhas. Os dois caminhos valem — o Totvs nem sempre reflete nos
+    // dois. Contrato cancelado e o que entrou no lugar não são duas trilhas.
+    a.duplicado = a.linhas.length > 1 || a.turmas.length > 1 || a.trilhas.length > 1;
+    // Plano do ano fechado: as 12 mensalidades ou a anuidade à vista.
     const comPlano = vivos.filter(c => c.mens.length || c.avista);
     a.semBolsa = comPlano.filter(c => !c.comBolsa);
     // O ticket só vale quando há um contrato só, com o ano inteiro lançado: com
@@ -977,7 +979,7 @@ function montarRenovacao(tv, fin){
       itens: ls.map(a => ({ u: a.code, unidade: CODE[a.code] || a.code, nome: a.aluno, ra: a.ra,
         serie: a.serie, sit: a.linhas[0] && a.linhas[0].sit,
         trilhas: a.trilhas, turmas: a.turmas,
-        nContratos: a.contratos.length, nLinhas: a.linhas.length,
+        nContratos: a.contratos.filter(c => c.sit !== 'CANCELADO').length, nLinhas: a.linhas.length,
         semBolsa: a.semBolsa.map(c => c.trilha || ('turma ' + c.turma)),
         parcelas: a.contratos.map(c => c.mens.length),
         anual: a.anual }))
