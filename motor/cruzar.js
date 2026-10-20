@@ -209,7 +209,16 @@ function lerTotvs(caminho){
     matriculado: MATRICULADO.has(r[9]), pre: PRE.has(r[9])
   }));
 
-  return { captacao, renovacao, relato };
+  // Uma linha por matrícula ativa, não por aluno: é a duplicidade que
+  // precisamos enxergar, e ela só aparece quando as linhas ficam separadas.
+  const remAtivas = remat.filter(r => avancou(r[9])).map(r => ({
+    code: unidade(r), aluno: String(r[13]).trim(), ra: r[12],
+    serie: r[5], curso: r[4], turma: String(r[6] || ''), grade: r[7] || null,
+    sit: r[9], dtMat: serial(r[11]),
+    matriculado: MATRICULADO.has(r[9]), pre: PRE.has(r[9])
+  }));
+
+  return { captacao, renovacao, remAtivas, relato };
 }
 
 function lerUnidades(caminho){
@@ -343,7 +352,7 @@ const cotaEsperada = filial => /RECREIO/i.test(String(filial||'')) ? COTA_RECREI
 function lerFinanceiro(caminho){
   // Sem a ficha o painel roda sem os rastreios financeiros — mapas vazios e a
   // marca de ausência, para ninguém aparecer como 'sem financeiro' por engano.
-  if(!caminho) return { porRA: new Map(), mensPorRA: new Map(), cobranca: new Map(), creditos: new Map(), relato: { ausente: true } };
+  if(!caminho) return { porRA: new Map(), mensPorRA: new Map(), cobranca: new Map(), creditos: new Map(), contratosRem: new Map(), relato: { ausente: true } };
   const { abas } = abrir(caminho);
   const aba = abas.filter(a=>a.linhas).sort((a,b)=>b.linhas.length-a.linhas.length)[0];
   const linhas = aba.linhas.slice(1).filter(r => r && r[3]);
@@ -465,7 +474,25 @@ function lerFinanceiro(caminho){
       ra: r[3], aluno: String(r[4] || '').trim() });
   }
 
-  return { porRA, mensPorRA, cobranca, creditos, relato: {
+  // Contrato da renovação = RA + turma. Dois contratos no mesmo RA é o aluno
+  // matriculado em duas trilhas; a bolsa quase sempre está só num deles.
+  const contratosRem = new Map();
+  for(const r of linhas){
+    if(r[19] !== 'REMATRÍCULA' || fantasma(r) || String(r[47] || '') === 'Cancelado') continue;
+    const serv = String(r[34] || '');
+    const ehMens = SERVICO_MENSALIDADE.test(serv), ehEnt = SERVICO_ENTRADA.test(serv);
+    if(!ehMens && !ehEnt) continue;
+    const chave = r[3] + '|' + String(r[23] || '-');
+    if(!contratosRem.has(chave)) contratosRem.set(chave, { ra: r[3], aluno: String(r[4]||'').trim(),
+      turma: String(r[23] || '-'), trilha: String(r[17] || '').trim(), serie: r[16] || '',
+      filial: r[2] || '', mens: [], comBolsa: 0, entradas: 0, entradasPagas: 0, bolsas: new Set() });
+    const o = contratosRem.get(chave);
+    if(String(r[48] || '').trim()) o.bolsas.add(String(r[48]).trim());
+    if(ehMens){ o.mens.push((num(r[42])||0) - (num(r[43])||0)); if((num(r[43])||0) > 0) o.comBolsa++; }
+    else { o.entradas++; if((num(r[44])||0) > 0) o.entradasPagas++; }
+  }
+
+  return { porRA, mensPorRA, cobranca, creditos, contratosRem, relato: {
     linhas: linhas.length, entradas: entrada.length, alunos: todos.length,
     cotaCompleta: todos.filter(x=>x.pago).length,
     parciais: todos.filter(x=>x.parcial).length,
@@ -579,6 +606,28 @@ const CATEGORIAS = [
   { id:'matriculado', chip:'MATRICULADO', k:'ok',
     t:'Matrícula efetivada',
     d:'Situação Matriculado ou Reserva de vaga - Matriculado no Totvs. É o que conta como matrícula.' }
+];
+
+/* Anomalias da renovação. O aluno de 8º ano em diante escolhe a trilha da
+   série seguinte; quando é matriculado em duas, o Totvs abre dois contratos
+   ativos e a bolsa fica só num deles. Daí sai o contrato pelo valor cheio,
+   que puxa o ticket da renovação para cima. */
+const ANOMALIAS_REM = [
+  { id:'duas_turmas', chip:'DUAS TURMAS', k:'crit',
+    t:'Aluno ativo em mais de uma turma',
+    d:'A partir do 8º ano o aluno escolhe a trilha da série seguinte — Militar, Pré-Vestibular, Medicina, IME ITA. Aqui ele foi matriculado em mais de uma e o Totvs mantém os dois contratos ativos, cada um com 12 mensalidades. Precisa ficar um só; o outro é cancelado.' },
+  { id:'contrato_sem_bolsa', chip:'SEM BOLSA', k:'crit',
+    t:'Contrato sem nenhuma bolsa lançada',
+    d:'As 12 mensalidades deste contrato estão pelo valor cheio de tabela, sem bolsa nem desconto. Quando o aluno tem dois contratos, é quase sempre o contrato extra — e é ele que distorce o ticket médio da renovação para cima.' },
+  { id:'rem_sem_mensalidade', chip:'SEM PLANO', k:'crit',
+    t:'Rematrícula sem mensalidade lançada',
+    d:'A matrícula está ativa e nenhuma mensalidade foi lançada no contrato. Não gera boleto e não entra na receita do ano.' },
+  { id:'rem_parcelas_fora', chip:'PARCELAS', k:'warn',
+    t:'Contrato com número de parcelas diferente de 12',
+    d:'O plano do ano tem 12 mensalidades. Mais ou menos que isso é lançamento incompleto ou duplicado dentro do mesmo contrato.' },
+  { id:'rem_sem_cota', chip:'SEM COTA', k:'warn',
+    t:'Rematrícula sem cota de entrada',
+    d:'O contrato tem as mensalidades e nenhuma cota de entrada lançada.' }
 ];
 
 /* Erros de lançamento no financeiro. São marcas, não estados: o aluno continua
@@ -851,7 +900,94 @@ function cruzar(caminhoTotvs, caminhoUnidades, caminhoMkt, caminhoFin){
     a.semBolsa = m ? m.semBolsa : false;
   });
 
-  return { CODE, ORDER, itens, totvs: tv, unidades: un, mkt: mk, fin };
+  const renov = montarRenovacao(tv, fin);
+  return { CODE, ORDER, itens, renov, totvs: tv, unidades: un, mkt: mk, fin };
+}
+
+/* ---------------- renovação ---------------- */
+
+// Junta as linhas ativas do cadastro com os contratos da ficha e devolve o
+// que o painel precisa: o andamento por unidade, o ticket e as anomalias.
+function montarRenovacao(tv, fin){
+  const ativas = tv.remAtivas || [];
+  const contratos = [...(fin.contratosRem || new Map()).values()];
+  const semFicha = !!fin.relato.ausente;
+
+  // alunos: uma entrada por RA, com as linhas e os contratos juntos
+  const porRA = new Map();
+  ativas.forEach(l => {
+    if(!porRA.has(l.ra)) porRA.set(l.ra, { ra: l.ra, aluno: l.aluno, code: l.code,
+      serie: l.serie, curso: l.curso, linhas: [], contratos: [] });
+    porRA.get(l.ra).linhas.push(l);
+  });
+  contratos.forEach(ct => { const a = porRA.get(ct.ra); if(a) a.contratos.push(ct); });
+
+  const alunos = [...porRA.values()];
+  alunos.forEach(a => {
+    a.matriculado = a.linhas.some(l => l.matriculado);
+    a.pre = !a.matriculado && a.linhas.some(l => l.pre);
+    a.turmas = [...new Set(a.linhas.map(l => l.turma).filter(Boolean))];
+    a.trilhas = [...new Set(a.contratos.map(c => c.trilha).filter(Boolean))];
+    // Duas matrículas ativas: ou duas linhas no cadastro, ou dois contratos na
+    // ficha. Os dois caminhos valem — o Totvs nem sempre reflete nos dois.
+    a.duplicado = a.linhas.length > 1 || a.contratos.length > 1 || a.turmas.length > 1;
+    const comMens = a.contratos.filter(c => c.mens.length);
+    a.semBolsa = comMens.filter(c => !c.comBolsa);
+    // O ticket só vale quando há um contrato só, com as 12 parcelas: com dois
+    // não se sabe qual vai sobrar, e a média dos dois não é o preço de ninguém.
+    const bom = comMens.length === 1 && comMens[0].mens.length === 12 ? comMens[0] : null;
+    a.anual = bom ? bom.mens.reduce((x, y) => x + y, 0) + (a.code === 'AM' ? COTA_RECREIO : COTA_PADRAO) : null;
+  });
+
+  const anomDe = a => {
+    const e = [];
+    if(a.duplicado) e.push('duas_turmas');
+    if(semFicha) return e;
+    if(a.semBolsa.length) e.push('contrato_sem_bolsa');
+    if(!a.contratos.some(c => c.mens.length)) e.push('rem_sem_mensalidade');
+    if(a.contratos.some(c => c.mens.length && c.mens.length !== 12)) e.push('rem_parcelas_fora');
+    if(a.contratos.some(c => c.mens.length && !c.entradas)) e.push('rem_sem_cota');
+    return e;
+  };
+  alunos.forEach(a => { a.anomalias = anomDe(a); });
+
+  const anomalias = ANOMALIAS_REM.map(d => {
+    const ls = alunos.filter(a => a.anomalias.includes(d.id));
+    const porUni = {};
+    ls.forEach(a => porUni[a.code] = (porUni[a.code] || 0) + 1);
+    return { ...d, n: ls.length, porUni,
+      itens: ls.map(a => ({ u: a.code, unidade: CODE[a.code] || a.code, nome: a.aluno, ra: a.ra,
+        serie: a.serie, sit: a.linhas[0] && a.linhas[0].sit,
+        trilhas: a.trilhas, turmas: a.turmas,
+        nContratos: a.contratos.length, nLinhas: a.linhas.length,
+        semBolsa: a.semBolsa.map(c => c.trilha || ('turma ' + c.turma)),
+        parcelas: a.contratos.map(c => c.mens.length),
+        anual: a.anual }))
+        .sort((x, y) => ORDER.indexOf(x.u) - ORDER.indexOf(y.u) || x.nome.localeCompare(y.nome, 'pt')) };
+  });
+
+  const mediana = v => { if(!v.length) return null; const o = v.slice().sort((x, y) => x - y);
+    const m = o.length >> 1; return o.length % 2 ? o[m] : (o[m-1] + o[m]) / 2; };
+  const TMIN = 1800, TMAX = 60000;
+  const placar = ORDER.map(c => {
+    const it = alunos.filter(a => a.code === c);
+    const tk = it.map(a => a.anual).filter(v => v != null && v >= TMIN && v <= TMAX);
+    return { code: c, nome: CODE[c], total: it.length,
+      renovados: it.filter(a => a.matriculado).length, pre: it.filter(a => a.pre).length,
+      anomalos: it.filter(a => a.anomalias.length).length,
+      ticket: mediana(tk), nTicket: tk.length };
+  }).sort((a, b) => b.renovados - a.renovados);
+
+  const tkRede = alunos.map(a => a.anual).filter(v => v != null && v >= TMIN && v <= TMAX);
+  return {
+    total: alunos.length,
+    renovados: alunos.filter(a => a.matriculado).length,
+    pre: alunos.filter(a => a.pre).length,
+    elegiveis: (tv.renovacao || []).length,
+    ticket: mediana(tkRede), nTicket: tkRede.length,
+    comAnomalia: alunos.filter(a => a.anomalias.length).length,
+    placar, anomalias, semFicha
+  };
 }
 
 module.exports = { cruzar, CATEGORIAS, ERROS, CODE, ORDER, MATRICULADO, PRE, PENDENTE, ENCERRADO, parecenca, SUGERE };

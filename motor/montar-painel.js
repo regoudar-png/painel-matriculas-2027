@@ -231,6 +231,9 @@ function montar(r, mktAte, fontes){
       semBolsa: itens.filter(i => i.matriculado && i.semBolsaFin)
         .map(i => ({ u:i.code, nome:i.nome, serie:i.serie, anual:i.ticketFin }))
         .sort((a,b) => (b.anual||0) - (a.anual||0)) },
+    // A renovação entra como bloco próprio: o painel acompanha a captação e
+    // rastreia as anomalias de lançamento da rematrícula.
+    rem: r.renov || null,
     qualidade: { ...totvs.relato, financeiro: r.fin.relato, marketplace: r.mkt.relato, sugestoes: sugestoes.slice(0,20),
       ticketFora, semPagamento }
   };

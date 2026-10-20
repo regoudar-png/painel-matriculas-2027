@@ -394,6 +394,16 @@ footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-si
       <div class="pc-legend" id="capLeg"></div>
     </div>
 
+    <div class="pcard" id="tab-rem">
+      <div class="pc-top"><span class="sq" style="background:var(--info)"></span>
+        <span class="nm">Renovação</span><span class="fonte" id="remFonte">Totvs · Financeiro</span></div>
+      <div class="pc-mid">
+        <span class="pc-big" id="remBig">—</span>
+        <span class="pc-meta"><span class="a" id="remA"></span>
+          <span class="b" id="remB"></span></span></div>
+      <div class="pc-bar" id="remBar"></div>
+      <div class="pc-legend" id="remLeg"></div>
+    </div>
   </div>
 </div>
 
@@ -437,6 +447,21 @@ footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-si
       <div class="shead"><h2>Avisos de qualidade</h2>
         <span class="hint">o que ficou de fora e por quê</span></div>
       <div class="card" id="qualidade"></div>
+    </section>
+
+    <section id="secRem">
+      <div class="shead"><h2>Renovação — anomalias de lançamento</h2>
+        <span class="hint" id="remHint"></span></div>
+      <div class="card" id="remAnom"></div>
+    </section>
+
+    <section id="secRemPlacar">
+      <div class="shead"><h2>Renovação por unidade</h2>
+        <span class="hint">renovados sobre os ativos · ticket mediano da anuidade</span></div>
+      <div class="card scroll"><table>
+        <thead><tr><th>#</th><th>Unidade</th><th class="num">Renovados</th><th class="num">Pré</th>
+          <th class="num">Com anomalia</th><th class="num">Ticket médio</th><th class="num">Base do ticket</th></tr></thead>
+        <tbody id="remPlacar"></tbody></table></div>
     </section>
   </div>
 
@@ -850,7 +875,7 @@ function trocarAba(a){
 document.getElementById('tab-cap').addEventListener('click',()=>trocarAba('cap'));
 
 function desenhar(){
-  chipsUnidade(); panorama(); kpis(); placar(); secaoErros(); listas();
+  chipsUnidade(); panorama(); kpis(); placar(); secaoErros(); listas(); renovacao();
   document.getElementById('listaHint').textContent =
     (uni?CODE[uni]:'Rede toda')+
     (fkpi!==null?' · '+cap.kpi[fkpi].lb.toLowerCase():'')+
@@ -881,6 +906,119 @@ document.getElementById('tema').addEventListener('click',()=>{
 // Avisos de qualidade: o que o motor tirou da conta e por quê. Os alunos da
 // casa lançados como matrícula nova aparecem com nome, para a unidade corrigir
 // o tipo no Totvs — enquanto não corrigir, ficam fora da captação.
+/* ---------- renovação ---------- */
+
+// O cartão do panorama e as duas seções. A renovação não tem pagamento pela
+// Layers: o que se acompanha aqui é o lançamento — quem está em duas turmas,
+// quem ficou sem bolsa, quem não tem plano do ano.
+function renovacao(){
+  const R = D.rem;
+  const esconder = (id, v) => { const e = document.getElementById(id); if(e) e.hidden = !v; };
+  if(!R){ esconder('tab-rem', false); esconder('secRem', false); esconder('secRemPlacar', false); return; }
+  esconder('tab-rem', true); esconder('secRem', true); esconder('secRemPlacar', true);
+
+  const noEsc = l => uni ? l.filter(i => i.u === uni) : l;
+  const alvo = uni ? (R.placar.find(p => p.code === uni) || { total:0, renovados:0, pre:0, ticket:null, nTicket:0, anomalos:0 }) : R;
+  const base = uni ? alvo.total : R.total;
+  const renov = uni ? alvo.renovados : R.renovados;
+  const pre = uni ? alvo.pre : R.pre;
+  const pc = base ? renov / base * 100 : 0;
+  document.getElementById('remBig').textContent = nf(renov);
+  document.getElementById('remA').textContent = 'de ' + nf(base) + ' com matrícula ativa';
+  document.getElementById('remB').textContent = pc.toFixed(1).replace('.', ',') + '%' +
+    (pre ? ' · ' + nf(pre) + ' pré-matriculados' : '');
+  document.getElementById('remBar').innerHTML =
+    '<i style="width:' + Math.max(pc, 0.4) + '%;background:var(--info)"></i>';
+  const tk = uni ? alvo.ticket : R.ticket;
+  const nt = uni ? alvo.nTicket : R.nTicket;
+  document.getElementById('remLeg').innerHTML = tk
+    ? '<span><b>' + brl2(tk) + '</b> ticket mediano · base de ' + nf(nt) + ' de ' + nf(base) + '</span>'
+    : '<span>ticket sem base de cálculo</span>';
+
+  /* anomalias — mesma anatomia dos cartões de erro da captação */
+  const vivas = R.anomalias.map(a => ({ ...a, lista: noEsc(a.itens) })).filter(a => a.lista.length);
+  const quem = new Set(); vivas.forEach(a => a.lista.forEach(i => quem.add(i.ra || i.nome)));
+  document.getElementById('remHint').textContent = R.semFicha
+    ? 'sem a ficha financeira só dá para ver a duplicidade de turma'
+    : vivas.length ? nf(quem.size) + (quem.size === 1 ? ' aluno' : ' alunos') + ' com anomalia'
+    : 'nenhuma anomalia — as unidades zeraram';
+  document.getElementById('remAnom').innerHTML = vivas.length ? vivas.map(a => {
+    const aberto = !!remAberto[a.id];
+    const porUni = {};
+    a.lista.forEach(i => porUni[i.u] = (porUni[i.u] || 0) + 1);
+    return '<div class="erro">' +
+      '<button class="erro-cab" type="button" data-rem="' + a.id + '" aria-expanded="' + aberto + '">' +
+        '<span class="chip">' + esc(a.chip) + '</span>' +
+        '<span><span class="tt">' + esc(a.t) + '</span>' +
+          '<span class="dd">' + esc(a.d) + '</span></span>' +
+        '<span class="qt">' + nf(a.lista.length) + '</span>' +
+        '<span class="ab">' + (aberto ? 'Fechar' : 'Ver lista') + '</span>' +
+      '</button>' +
+      (aberto ? '<div class="erro-corpo">' +
+        '<div class="erro-uni">' + ORDER.filter(u => porUni[u]).map(u =>
+          '<b>' + esc(CODE[u]) + '<i>' + porUni[u] + '</i></b>').join('') + '</div>' +
+        '<div class="erro-rol"><table class="erro-tab"><thead><tr>' +
+          '<th>Unidade</th><th>Aluno</th><th>Situação no Totvs</th><th>' + esc(cabRem(a.id)) + '</th>' +
+        '</tr></thead><tbody>' + a.lista.map(i =>
+          '<tr><td>' + esc(CODE[i.u] || i.u) + '</td>' +
+            '<td><span class="nm">' + esc(i.nome) + '</span>' +
+              '<span class="z">' + esc(i.serie || '') + (i.ra ? ' · ' + esc(i.ra) : '') + '</span></td>' +
+            '<td>' + esc(i.sit || '') + '</td>' +
+            '<td>' + detalheRem(a.id, i) + '</td></tr>').join('') +
+        '</tbody></table></div></div>' : '') +
+    '</div>';
+  }).join('') : '<div class="vazio">Nenhuma anomalia de lançamento na renovação.</div>';
+
+  /* placar */
+  document.getElementById('remPlacar').innerHTML = R.placar.filter(p => p.total).map((p, i) =>
+    '<tr data-u="' + p.code + '"><td class="pos">' + (i + 1) + 'º</td>' +
+    '<td><span class="uname"><span class="ucode">' + p.code + '</span>' + esc(p.nome) + '</span></td>' +
+    '<td>' + nf(p.renovados) + '</td><td>' + nf(p.pre) + '</td>' +
+    '<td>' + (p.anomalos || '·') + '</td>' +
+    '<td>' + (p.ticket ? brl2(p.ticket) : '—') + '</td>' +
+    cobertura(p.nTicket, p.total) + '</tr>').join('');
+}
+
+const remAberto = {};
+document.getElementById('remAnom').addEventListener('click', e => {
+  const b = e.target.closest('[data-rem]'); if(!b) return;
+  const id = b.dataset.rem;
+  remAberto[id] = !remAberto[id];
+  renovacao();
+});
+
+// A coluna da direita muda de nome conforme a anomalia.
+function cabRem(id){
+  return id === 'duas_turmas' ? 'Trilhas em que está matriculado'
+    : id === 'contrato_sem_bolsa' ? 'Contrato sem bolsa'
+    : id === 'rem_parcelas_fora' ? 'Parcelas lançadas'
+    : 'Detalhe';
+}
+function detalheRem(id, i){
+  if(id === 'duas_turmas'){
+    const tr = i.trilhas || [], tu = i.turmas || [];
+    const ls = tr.length ? tr : tu.map(x => 'turma ' + x);
+    // Quando o cadastro tem mais turmas que a ficha tem contratos, a trilha
+    // sozinha esconde a duplicidade — mostro as turmas junto.
+    const extra = (tr.length && tu.length > tr.length) ? 'turmas ' + tu.join(', ') : '';
+    return ls.map(x => '<span class="lanc"><b>' + esc(x) + '</b></span>').join('') +
+      (extra ? '<span class="lanc">' + esc(extra) + '</span>' : '') +
+      (i.nContratos > 1 ? '<span class="lanc">' + i.nContratos + ' contratos ativos</span>'
+        : i.nLinhas > 1 ? '<span class="lanc">' + i.nLinhas + ' matrículas no cadastro</span>' : '');
+  }
+  if(id === 'contrato_sem_bolsa')
+    return (i.semBolsa || []).map(x => '<span class="lanc"><b>' + esc(x) + '</b> · ' +
+      '<span class="ab">valor cheio de tabela</span></span>').join('') +
+      (i.nContratos > 1 ? '<span class="lanc">o aluno tem ' + i.nContratos + ' contratos</span>' : '');
+  if(id === 'rem_parcelas_fora')
+    return '<span class="lanc">' + (i.parcelas || []).filter(Boolean).join(' + ') + ' mensalidades</span>';
+  if(id === 'rem_sem_mensalidade')
+    return '<span class="lanc"><span class="ab">nenhuma mensalidade lançada</span></span>';
+  if(id === 'rem_sem_cota')
+    return '<span class="lanc">mensalidades lançadas, <span class="ab">sem cota de entrada</span></span>';
+  return '<span class="lanc">' + esc(i.serie || '') + '</span>';
+}
+
 function qualidade(){
   const q = D.qualidade || {};
   const conferir = [].concat(
