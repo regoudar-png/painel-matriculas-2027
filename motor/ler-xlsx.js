@@ -99,7 +99,10 @@ function lerAba(xml, textos) {
   // O atributo r é opcional no OOXML: quem escreve com SpreadsheetGear (é o
   // caso dos horários exportados do Totvs) omite tanto em <row> quanto em <c>.
   // Sem ele a posição é implícita — a linha seguinte e a próxima coluna.
-  const rowRe = /<row\b([^>]*)(?:\/>|>([\s\S]*?)<\/row>)/g;
+  // Os atributos vão em captura preguiçosa: com [^>]* o motor consome a barra
+  // do <c ... /> vazio, a alternativa de autofechamento não casa mais e a
+  // célula seguinte é engolida até o primeiro </c> — as colunas saíam tortas.
+  const rowRe = /<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g;
   let m, linhaAtual = 0;
   while ((m = rowRe.exec(xml))) {
     const attrsL = m[1] || '';
@@ -108,7 +111,7 @@ function lerAba(xml, textos) {
     linhaAtual = numero;
     const corpo = m[2] || '';
     const arr = [];
-    const cRe = /<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g;
+    const cRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
     let c, colAtual = -1;
     while ((c = cRe.exec(corpo))) {
       const attrs = c[1], dentro = c[2] || '';

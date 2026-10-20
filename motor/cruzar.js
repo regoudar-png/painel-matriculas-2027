@@ -343,6 +343,9 @@ const SERVICO_ENTRADA = /1ª Cota de Mensalidade|Reserva de vaga/i;
 // lançado no Totvs aparece aqui; quem está apenas liberado não tem parcela.
 const SERVICO_MENSALIDADE = /(^|- )Mensalidade$/i;
 const SERVICO_CREDITO = /Nota de Cr[ée]dito/i;
+// A família pode quitar o ano num lançamento só, no serviço "Anuidade". É
+// contrato completo: não tem mensalidade nem cota de entrada porque não precisa.
+const SERVICO_ANUIDADE = /(^|- )Anuidade$/i;
 
 // Valor da 1ª cota: R$ 300 nas unidades, R$ 600 em Américas (Recreio).
 // A mensalidade não entra nesta conta — o que se rastreia é a cota de entrada.
@@ -481,14 +484,22 @@ function lerFinanceiro(caminho){
     if(r[19] !== 'REMATRÍCULA' || fantasma(r) || String(r[47] || '') === 'Cancelado') continue;
     const serv = String(r[34] || '');
     const ehMens = SERVICO_MENSALIDADE.test(serv), ehEnt = SERVICO_ENTRADA.test(serv);
-    if(!ehMens && !ehEnt) continue;
-    const chave = r[3] + '|' + String(r[23] || '-');
+    const ehAno = SERVICO_ANUIDADE.test(serv);
+    if(!ehMens && !ehEnt && !ehAno) continue;
+    // A coluna TURMA do export repete entre as trilhas do mesmo aluno: sem a
+    // descrição na chave, dois contratos de 12 viravam um de 24 parcelas.
+    const chave = r[3] + '|' + String(r[23] || '-') + '|' + String(r[17] || '').trim();
     if(!contratosRem.has(chave)) contratosRem.set(chave, { ra: r[3], aluno: String(r[4]||'').trim(),
       turma: String(r[23] || '-'), trilha: String(r[17] || '').trim(), serie: r[16] || '',
-      filial: r[2] || '', mens: [], comBolsa: 0, entradas: 0, entradasPagas: 0, bolsas: new Set() });
+      filial: r[2] || '', sit: String(r[26] || '').trim(), mens: [], comBolsa: 0, entradas: 0,
+      entradasPagas: 0, bolsas: new Set(),
+      avista: false, anuidade: 0, anuidadePaga: false });
     const o = contratosRem.get(chave);
     if(String(r[48] || '').trim()) o.bolsas.add(String(r[48]).trim());
-    if(ehMens){ o.mens.push((num(r[42])||0) - (num(r[43])||0)); if((num(r[43])||0) > 0) o.comBolsa++; }
+    if(ehAno){ o.avista = true; o.anuidade += (num(r[42])||0) - (num(r[43])||0);
+      if((num(r[43])||0) > 0) o.comBolsa++;
+      if((num(r[44])||0) > 0) o.anuidadePaga = true; }
+    else if(ehMens){ o.mens.push((num(r[42])||0) - (num(r[43])||0)); if((num(r[43])||0) > 0) o.comBolsa++; }
     else { o.entradas++; if((num(r[44])||0) > 0) o.entradasPagas++; }
   }
 
@@ -931,12 +942,18 @@ function montarRenovacao(tv, fin){
     // Duas matrículas ativas: ou duas linhas no cadastro, ou dois contratos na
     // ficha. Os dois caminhos valem — o Totvs nem sempre reflete nos dois.
     a.duplicado = a.linhas.length > 1 || a.contratos.length > 1 || a.turmas.length > 1;
-    const comMens = a.contratos.filter(c => c.mens.length);
-    a.semBolsa = comMens.filter(c => !c.comBolsa);
-    // O ticket só vale quando há um contrato só, com as 12 parcelas: com dois
-    // não se sabe qual vai sobrar, e a média dos dois não é o preço de ninguém.
-    const bom = comMens.length === 1 && comMens[0].mens.length === 12 ? comMens[0] : null;
-    a.anual = bom ? bom.mens.reduce((x, y) => x + y, 0) + (a.code === 'AM' ? COTA_RECREIO : COTA_PADRAO) : null;
+    // Plano do ano fechado: as 12 mensalidades ou a anuidade à vista.
+    // Contrato cancelado não é plano de ninguém: fica de fora das contas.
+    const vivos = a.contratos.filter(c => c.sit !== 'CANCELADO');
+    const comPlano = vivos.filter(c => c.mens.length || c.avista);
+    a.semBolsa = comPlano.filter(c => !c.comBolsa);
+    // O ticket só vale quando há um contrato só, com o ano inteiro lançado: com
+    // dois não se sabe qual vai sobrar, e a média dos dois não é o preço de ninguém.
+    const bom = comPlano.length === 1 && (comPlano[0].avista || comPlano[0].mens.length === 12)
+      ? comPlano[0] : null;
+    a.anual = !bom ? null : bom.avista ? bom.anuidade
+      : bom.mens.reduce((x, y) => x + y, 0) + (a.code === 'AM' ? COTA_RECREIO : COTA_PADRAO);
+    a.avista = !!(bom && bom.avista);
   });
 
   const anomDe = a => {
@@ -944,9 +961,10 @@ function montarRenovacao(tv, fin){
     if(a.duplicado) e.push('duas_turmas');
     if(semFicha) return e;
     if(a.semBolsa.length) e.push('contrato_sem_bolsa');
-    if(!a.contratos.some(c => c.mens.length)) e.push('rem_sem_mensalidade');
-    if(a.contratos.some(c => c.mens.length && c.mens.length !== 12)) e.push('rem_parcelas_fora');
-    if(a.contratos.some(c => c.mens.length && !c.entradas)) e.push('rem_sem_cota');
+    const vivos = a.contratos.filter(c => c.sit !== 'CANCELADO');
+    if(!vivos.some(c => c.mens.length || c.avista)) e.push('rem_sem_mensalidade');
+    if(vivos.some(c => c.mens.length && c.mens.length !== 12 && !c.avista)) e.push('rem_parcelas_fora');
+    if(vivos.some(c => c.mens.length && !c.entradas && !c.avista)) e.push('rem_sem_cota');
     return e;
   };
   alunos.forEach(a => { a.anomalias = anomDe(a); });
