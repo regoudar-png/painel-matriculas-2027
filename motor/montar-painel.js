@@ -189,14 +189,30 @@ function montar(r, mktAte, fontes){
   /* ---- erros de lançamento: marcas, não estados ---- */
   // O mesmo aluno pode estar em mais de uma lista, e continua contando como
   // matriculado. É isso que permite acompanhar se a unidade zerou o problema.
+  // A justificativa da unidade, colada por RA + tipo do erro. Sem tipo, a
+  // linha vale para qualquer inconsistência daquele aluno.
+  const mapaJust = (r.just && r.just.mapa) || new Map();
+  const chaveNome = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase().replace(/[^A-Z ]/g, ' ').replace(/s+/g, ' ').trim();
+  const justDe = (ra, nome, id) => {
+    if(!mapaJust.size) return null;
+    const ks = [];
+    if(ra) ks.push(String(ra).toUpperCase());
+    if(nome) ks.push('@' + chaveNome(nome));
+    for(const k of ks){ const j = mapaJust.get(k + '|' + id) || mapaJust.get(k + '|*'); if(j) return j; }
+    return null;
+  };
+
   const erros = ERROS.map(e => {
     const linhas = itens.filter(i => (i.erros || []).includes(e.id));
     const porUni = {};
     linhas.forEach(i => porUni[i.code] = (porUni[i.code] || 0) + 1);
-    return { ...e, n: linhas.length, porUni,
+    const nJust = linhas.filter(i => justDe(i.ra, i.nome, e.id)).length;
+    return { ...e, n: linhas.length, porUni, nJust,
       ras: linhas.map(i => i.ra).filter(Boolean),
       itens: linhas.map(i => ({
         u: i.code, nome: i.nome, serie: i.serie, ra: i.ra || null, sit: i.sit,
+        just: justDe(i.ra, i.nome, e.id),
         nEntradas: i.nEntradas || 0, duplicado: i.duplicado || 0,
         temMensalidade: !!i.temMensalidade, anual: ticketDe(i),
         entradas: (i.entradas || []).map(x => ({ servico: x.servico, venc: x.venc,
@@ -214,9 +230,17 @@ function montar(r, mktAte, fontes){
       unidades: fontes.unidades || null,
       marketplace: fontes.marketplace || null,
       financeiro: fontes.financeiro || null,
+      justificativas: fontes.justificativas || null,
       mktAte, defasados
     },
     erros,
+    // Quantas inconsistências estão justificadas, e o que a planilha das
+    // unidades trouxe de errado — some da tela quando não há arquivo.
+    just: {
+      n: erros.reduce((x, e) => x + e.nJust, 0),
+      total: erros.reduce((x, e) => x + e.n, 0),
+      relato: (r.just && r.just.relato) || { ausente: true }
+    },
     cap: { kpi, vaos, listas, placar, bolsoes,
       exigencia: { total: emExigencia.length, motivos, ids: Object.keys(motivos) },
       previsto: PREVISTO,
@@ -273,6 +297,8 @@ if (typeof require !== 'undefined' && require.main === module) {
     if(tem('CÓDIGO DA VENDA','STATUS DA VENDA')) return 'mkt';
     if(tem('STATUS','ID DA TRANSAÇÃO') || tem('STATUS','CÓDIGO DO PEDIDO')) return 'mkt';
     if(tem('IDLAN','PLANO DE PAGAMENTO','BOLSA %')) return 'bolsas';   // reconhecido, não usado
+    // A planilha das justificativas é a única que as unidades escrevem.
+    if(cab.some(c => /^RA\b/.test(c)) && cab.some(c => /^(JUSTIFICATIVA|MOTIVO)/.test(c))) return 'just';
     return null;
   };
   const achado = {};
@@ -281,7 +307,7 @@ if (typeof require !== 'undefined' && require.main === module) {
     else if(k && !achado[k]) achado[k] = p;
     else if(!k) console.error('não reconheci:', path.basename(p)); });
   const pTotvs = achado.totvs, pUnidades = achado.unidades || null,
-        pMkt = achado.mkt || null, pFin = achado.fin || null;
+        pMkt = achado.mkt || null, pFin = achado.fin || null, pJust = achado.just || null;
   console.error('fontes:', Object.entries(achado).map(([k,v]) => k+'='+path.basename(v)).join(' | '));
   if(!pTotvs){
     console.error('uso: node montar-painel.js <arquivos.xlsx...> [--mkt-ate AAAA-MM-DD]');
@@ -293,8 +319,9 @@ if (typeof require !== 'undefined' && require.main === module) {
   const ate = flags['mkt-ate'] || ((pMkt||'').match(/(\d{4}-\d{2}-\d{2})/)||[])[1] || null;
 
   const nome = p => p ? path.basename(p) : null;
-  const saida = montar(cruzar(pTotvs, pUnidades, pMkt, pFin), ate,
-    { totvs:nome(pTotvs), unidades:nome(pUnidades), marketplace:nome(pMkt), financeiro:nome(pFin) });
+  const saida = montar(cruzar(pTotvs, pUnidades, pMkt, pFin, pJust), ate,
+    { totvs:nome(pTotvs), unidades:nome(pUnidades), marketplace:nome(pMkt), financeiro:nome(pFin),
+      justificativas:nome(pJust) });
   const d = saida.diag;
   const f2 = v => v == null ? '—' : v.toFixed(2);
 

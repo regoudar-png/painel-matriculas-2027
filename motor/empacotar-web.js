@@ -20,7 +20,7 @@ function ateAntesDe(s, marco) {
 
 /* ---- cruzar.js ---- */
 let cruzar = ler('cruzar.js');
-cruzar = ateAntesDe(cruzar, "module.exports = { cruzar, CATEGORIAS");
+cruzar = ateAntesDe(cruzar, "module.exports = { cruzar");
 cruzar = cruzar
   .replace("const fs = require('fs');\n", '')
   .replace("const path = require('path');\n", '')
@@ -53,11 +53,12 @@ ${cruzar}
 ${montar}
 /* ============ entrada ============ */
 
-// arquivos: { totvs:{nome,buf}, marketplace:{...}, financeiro:{...} }
+// arquivos: { totvs:{nome,buf}, marketplace:{...}, financeiro:{...},
+//             justificativas:{...} }
 // buf: ArrayBuffer ou Uint8Array. Devolve o JSON que o painel consome.
 async function processar(arquivos, aoAndar) {
   const passo = (n, t) => { if (aoAndar) aoAndar(n, t); };
-  const ordem = ['totvs', 'marketplace', 'financeiro'];
+  const ordem = ['totvs', 'marketplace', 'financeiro', 'justificativas'];
   const lidos = {};
   let n = 0;
   for (const k of ordem) {
@@ -70,14 +71,15 @@ async function processar(arquivos, aoAndar) {
   // A planilha das unidades saiu do processo: o cruzamento roda sem ela.
 
   passo(4, 'cruzando as bases');
-  const r = cruzar(lidos.totvs, null, lidos.marketplace, lidos.financeiro);
+  const r = cruzar(lidos.totvs, null, lidos.marketplace, lidos.financeiro, lidos.justificativas);
 
   passo(5, 'montando o painel');
   const nomeMkt = arquivos.marketplace && arquivos.marketplace.nome;
   const ate = (String(nomeMkt || '').match(/(\\d{4}-\\d{2}-\\d{2})/) || [])[1] || null;
   const nome = k => (arquivos[k] && arquivos[k].nome) || null;
   return montar(r, ate, { totvs: nome('totvs'), unidades: null,
-    marketplace: nome('marketplace'), financeiro: nome('financeiro') });
+    marketplace: nome('marketplace'), financeiro: nome('financeiro'),
+    justificativas: nome('justificativas') });
 }
 
 const api = { processar, cruzar, montar, lerPlanilhaBuf, CATEGORIAS, CODE, ORDER };

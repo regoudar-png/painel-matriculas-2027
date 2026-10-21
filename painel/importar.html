@@ -98,7 +98,9 @@ var VAGAS = [
   { k:'totvs',       rot:'Cadastro — Totvs',
     dica:'alunos e responsáveis: situação e tipo de matrícula, série, turma', obrigatorio:true },
   { k:'financeiro',  rot:'Ficha financeira — Totvs',
-    dica:'parcelas, baixas, bolsas e mensalidades (a que traz VALOR_BAIXADO e STATUS_BOLETO)', obrigatorio:false }
+    dica:'parcelas, baixas, bolsas e mensalidades (a que traz VALOR_BAIXADO e STATUS_BOLETO)', obrigatorio:false },
+  { k:'justificativas', rot:'Justificativas das unidades',
+    dica:'por que cada inconsistência continua aberta — a planilha que as unidades preenchem', obrigatorio:false }
 ];
 // Reconhecido, mas não usado: o painel não precisa dele. Fica aqui para o
 // arquivo não voltar como "não reconheci" quando alguém o soltar junto.
@@ -120,6 +122,9 @@ function detectar(wb){
   if(tem('STATUS','ID DA TRANSAÇÃO') || tem('STATUS','CÓDIGO DO PEDIDO')) return 'marketplace';
   // Base Financeira do Totvs (IDLAN, PLANO DE PAGAMENTO, BOLSA %): sem baixa,
   // sem status de boleto. É o relatório de bolsas, não a ficha.
+  // A única planilha que as unidades escrevem: RA mais Justificativa.
+  if(cab.some(function(c){ return /^RA\b/.test(c); }) &&
+     cab.some(function(c){ return /^(JUSTIFICATIVA|MOTIVO)/.test(c); })) return 'justificativas';
   if(tem('IDLAN','PLANO DE PAGAMENTO','BOLSA %')) return 'bolsas';
   return null;
 }

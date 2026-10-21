@@ -221,6 +221,84 @@ function lerTotvs(caminho){
   return { captacao, renovacao, remAtivas, relato };
 }
 
+/* ---------------- justificativas ---------------- */
+
+// Por que uma inconsistência continua aberta. Não sai de relatório nenhum: é a
+// unidade que escreve, numa planilha entregue junto com os outros arquivos.
+//
+// Cola na inconsistência por RA + tipo do erro, e é por isso que sobrevive à
+// remontagem diária: as listas são refeitas do zero todo dia, mas a chave é a
+// mesma. Corrigido no Totvs, o aluno sai da lista e a justificativa dorme
+// junto; se o problema voltar, ela reaparece com a data em que foi escrita.
+//
+// Sem tipo, a justificativa vale para qualquer inconsistência daquele aluno.
+const CAB_JUST = {
+  ra:    /^ra\b/i,
+  aluno: /^(aluno|nome)/i,
+  tipo:  /^(tipo|inconsist|erro|problema)/i,
+  texto: /^(justificativa|motivo|observa|por\s*qu)/i,
+  quem:  /^(quem|respons|autor|unidade.*respons)/i,
+  data:  /^data/i,
+  prazo: /^(prazo|previs)/i
+};
+// O tipo aceita o id interno, o chip da tela ou o título da lista: a unidade
+// escreve o que está vendo, não o que está no código.
+const chaveErro = s => {
+  const v = String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+  if(!v) return '*';
+  for(const e of ERROS){
+    const alvos = [e.id, e.chip, e.t].map(x => String(x).normalize('NFD')
+      .replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim());
+    if(alvos.includes(v)) return e.id;
+  }
+  return null;   // escreveu um tipo que não existe
+};
+
+function lerJustificativas(caminho){
+  if(!caminho) return { mapa: new Map(), relato: { ausente: true } };
+  const { abas } = abrir(caminho);
+  const aba = Object.values(abas).map(a => a.linhas || [])
+    .sort((a, b) => b.length - a.length)[0] || [];
+  const cab = (aba[0] || []).map(v => String(v == null ? '' : v).trim());
+  const col = {};
+  for(const k in CAB_JUST){ const i = cab.findIndex(c => CAB_JUST[k].test(c)); if(i >= 0) col[k] = i; }
+
+  const mapa = new Map();
+  const relato = { linhas: 0, semRa: 0, semTexto: 0, tipoDesconhecido: [], ausente: false };
+  if(col.ra == null || col.texto == null){
+    relato.semColunas = true;
+    relato.cabecalho = cab.filter(Boolean).slice(0, 12);
+    return { mapa, relato };
+  }
+  for(let i = 1; i < aba.length; i++){
+    const r = aba[i]; if(!r) continue;
+    const ra = String(r[col.ra] || '').trim().toUpperCase();
+    // Pagamento da Layers que ainda não tem cadastro no Totvs não tem RA.
+    // Nesses a chave é o nome — menos firme, mas são 1 em cada 4 da lista.
+    const nome = col.aluno != null ? norm(r[col.aluno]) : '';
+    const quem_ = ra ? ra : (nome ? '@' + nome : '');
+    const texto = String(col.texto != null ? (r[col.texto] || '') : '').trim();
+    if(!quem_ && !texto) continue;
+    if(!quem_){ relato.semRa++; continue; }
+    if(!texto){ relato.semTexto++; continue; }
+    const bruto = col.tipo != null ? r[col.tipo] : '';
+    const id = chaveErro(bruto);
+    if(id === null){ relato.tipoDesconhecido.push(String(bruto).trim()); continue; }
+    const d = col.data != null ? r[col.data] : null;
+    mapa.set(quem_ + '|' + id, {
+      texto,
+      quem: col.quem != null ? String(r[col.quem] || '').trim() : '',
+      data: isoDe(d) || serial(d) || null,
+      prazo: col.prazo != null ? (isoDe(r[col.prazo]) || serial(r[col.prazo]) || null) : null,
+      tipo: id
+    });
+    relato.linhas++;
+  }
+  relato.tipoDesconhecido = [...new Set(relato.tipoDesconhecido)].slice(0, 8);
+  return { mapa, relato };
+}
+
 function lerUnidades(caminho){
   // Sem a planilha o painel roda só com Totvs, Layers e financeiro; as listas
   // que dependem dela ficam vazias e o ticket da captação some.
@@ -754,11 +832,12 @@ function categoria(p, semPlanilha){
 
 /* ---------------- montagem ---------------- */
 
-function cruzar(caminhoTotvs, caminhoUnidades, caminhoMkt, caminhoFin){
+function cruzar(caminhoTotvs, caminhoUnidades, caminhoMkt, caminhoFin, caminhoJust){
   const tv = lerTotvs(caminhoTotvs);
   const un = lerUnidades(caminhoUnidades);
   const mk = lerMarketplace(caminhoMkt);
   const fin = lerFinanceiro(caminhoFin);
+  const just = lerJustificativas(caminhoJust);
 
   // Um aluno pode ter mais de uma transação (estornou e pagou de novo). Junto
   // antes de parear: senão a linha estornada consome o registro do Totvs e a
@@ -913,7 +992,7 @@ function cruzar(caminhoTotvs, caminhoUnidades, caminhoMkt, caminhoFin){
   });
 
   const renov = montarRenovacao(tv, fin);
-  return { CODE, ORDER, itens, renov, totvs: tv, unidades: un, mkt: mk, fin };
+  return { CODE, ORDER, itens, renov, totvs: tv, unidades: un, mkt: mk, fin, just };
 }
 
 /* ---------------- renovação ---------------- */
@@ -1010,7 +1089,7 @@ function montarRenovacao(tv, fin){
   };
 }
 
-module.exports = { cruzar, CATEGORIAS, ERROS, CODE, ORDER, MATRICULADO, PRE, PENDENTE, ENCERRADO, parecenca, SUGERE };
+module.exports = { cruzar, lerJustificativas, CATEGORIAS, ERROS, CODE, ORDER, MATRICULADO, PRE, PENDENTE, ENCERRADO, parecenca, SUGERE };
 
 if(require.main === module){
   const [a,b,c,e] = process.argv.slice(2);
